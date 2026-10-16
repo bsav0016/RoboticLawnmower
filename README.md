@@ -2,6 +2,11 @@
 
 A Raspberry Pi 4 rover that drives itself over a GPS-bounded rectangle in a boustrophedon ("lawnmower") pattern. It fuses GPS, magnetometer and accelerometer readings with a Kalman filter and steers two DC motors toward each waypoint. This is the prototype platform; the long-term goal is a full-size mower.
 
+<p>
+<img src="docs/images/cart-overview.jpg" alt="The rover prototype: Raspberry Pi 4, GPS module, magnetometer board, L298N motor driver and two drive wheels on an acrylic chassis" height="420">
+<img src="docs/images/cart-side.jpg" alt="Side view of the rover showing the Pi GPIO wiring, GPS module and USB controller dongle" height="420">
+</p>
+
 ![Wiring diagram: LiPo battery feeding a buck converter and motor controller, with the Pi, GPS and IMU](docs/images/wiring-diagram.png)
 
 ## How it works
