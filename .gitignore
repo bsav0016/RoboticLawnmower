@@ -1,0 +1,26 @@
+# Sensitive / credentials
+IP and login.txt
+
+# Word lock/temp files
+~$*.docx
+~$*.pptx
+~$*.xlsx
+
+# Claude Code local settings (per-user, not shared)
+.claude/settings.local.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Local field coordinates
+.env
+
+# Local notes
+Claude Context.docx
