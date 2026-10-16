@@ -56,7 +56,7 @@ def generate_lawnmower(corners, spacing_m):
     ref_lat = sum(c[0] for c in corners) / 4
     ref_lon = sum(c[1] for c in corners) / 4
 
-    # Project all corners to local metre space
+    # Project all corners to local meter space
     pts = [to_meters(lat, lon, ref_lat, ref_lon) for lat, lon in corners]
 
     # Order corners as a convex polygon

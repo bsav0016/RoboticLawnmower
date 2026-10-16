@@ -145,13 +145,13 @@ def read_accelerometer_world(heading_deg):
 
 
 # --- Kalman filter ---
-# State: [x, y, vx, vy] in local metres (East-North from _kf_ref origin)
+# State: [x, y, vx, vy] in local meters (East-North from _kf_ref origin)
 # Process input: accelerometer (ax_east, ay_north)
 # Measurement: GPS position (x, y)
 #
 # Tune these if the filter is too sluggish (raise GPS_STD_M) or too noisy
 # (lower GPS_STD_M), or if dead-reckoning drifts fast (raise KF_PROCESS_VEL).
-GPS_STD_M      = 3.0   # GPS 1-sigma position noise (metres)
+GPS_STD_M      = 3.0   # GPS 1-sigma position noise (meters)
 KF_PROCESS_POS = 0.05  # Position process noise std dev (m per step)
 KF_PROCESS_VEL = 0.3   # Velocity process noise std dev (m/s per step)
 
