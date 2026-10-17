@@ -59,6 +59,14 @@ Field coordinates live in `.env`, which is gitignored.
 
 The run stops after `RUNTIME_LIMIT_S` seconds as a safety cutoff.
 
+### Tests
+
+```bash
+python -m unittest discover -s tests
+```
+
+The tests need no Pi or extra packages. They cover the waypoint planner (coordinate conversion, corner ordering, pass count, spacing, coverage and direction for wide and tall fields) and the `.env` corner loading. The sensor, Kalman filter and motor code only runs on the robot and is not tested; GitHub Actions just checks that every script still compiles, then runs these tests.
+
 ## Milestones
 
 - [x] Drive with a remote controller
@@ -73,3 +81,7 @@ The run stops after `RUNTIME_LIMIT_S` seconds as a safety cutoff.
 - Consumer GPS wanders by several meters, so raw fixes make the robot hunt. A simple EMA helped but did not fix it; fusing the IMU in a Kalman filter did more.
 - Without wheel encoders, speed is unknown on hills and rough ground. Accelerometer integration drifts, so GPS has to remain the long-term anchor.
 - One mistyped digit in a corner longitude (`-86` for `-85`) made the planner generate about 175,000 waypoints for a field roughly 87 km wide. Validating field size before planning is on the to-do list.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
