@@ -65,7 +65,7 @@ The run stops after `RUNTIME_LIMIT_S` seconds as a safety cutoff.
 python -m unittest discover -s tests
 ```
 
-The tests need no Pi or extra packages. They cover the waypoint planner (coordinate conversion, corner ordering, pass count, spacing, coverage and direction for wide and tall fields) and the `.env` corner loading. The sensor, Kalman filter and motor code only runs on the robot and is not tested; GitHub Actions just checks that every script still compiles, then runs these tests.
+The tests need no Pi or extra packages. They cover the waypoint planner (coordinate conversion, corner ordering, pass count, spacing, coverage and direction for wide and tall fields) and the `.env` corner loading. The sensor, Kalman filter and motor code only runs on the robot and is not tested; GitHub Actions just checks that every script still compiles, then runs these tests. Dependabot opens weekly pull requests to update the pinned GitHub Actions versions.
 
 ## Milestones
 
