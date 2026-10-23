@@ -2,13 +2,13 @@ import serial
 import pynmea2
 import math
 import time
-import numpy as np
 import RPi.GPIO as GPIO
 from mpu9250_jmdev.registers import *
 from mpu9250_jmdev.mpu_9250 import MPU9250
 from create_waypoint_list import create_waypoint_list
 from field_config import load_corners
-from lawnmower.geometry import calculate_bearing, distance_meters, heading_error, project_onto_row, to_gps, to_meters
+from lawnmower.geometry import calculate_bearing, distance_meters, heading_error, project_onto_row
+from lawnmower.kalman import PositionFilter
 from lawnmower.steering import heading_from_magnetometer, steer
 
 # --- Lawnmower field corners (lat, lon) ---
@@ -140,65 +140,9 @@ def read_accelerometer_world(heading_deg):
     return ax_east, ay_north
 
 
-# --- Kalman filter ---
-# State: [x, y, vx, vy] in local meters (East-North from _kf_ref origin)
-# Process input: accelerometer (ax_east, ay_north)
-# Measurement: GPS position (x, y)
-#
-# Tune these if the filter is too sluggish (raise GPS_STD_M) or too noisy
-# (lower GPS_STD_M), or if dead-reckoning drifts fast (raise KF_PROCESS_VEL).
-GPS_STD_M      = 3.0   # GPS 1-sigma position noise (meters)
-KF_PROCESS_POS = 0.05  # Position process noise std dev (m per step)
-KF_PROCESS_VEL = 0.3   # Velocity process noise std dev (m/s per step)
-
-_kf_initialized = False
-_kf_state = None   # np.array [x, y, vx, vy]
-_kf_P     = None   # 4×4 covariance matrix
-_kf_ref   = None   # (lat, lon) origin of local coordinate system
-
-
-def _to_local(lat, lon):
-    return to_meters(lat, lon, *_kf_ref)
-
-def _to_latlon(x, y):
-    return to_gps(x, y, *_kf_ref)
-
-def kf_init(lat, lon):
-    global _kf_initialized, _kf_state, _kf_P, _kf_ref
-    _kf_ref   = (lat, lon)
-    _kf_state = np.zeros(4)
-    _kf_P     = np.diag([GPS_STD_M**2, GPS_STD_M**2, 1.0, 1.0])
-    _kf_initialized = True
-
-def kf_predict(ax_east, ay_north, dt):
-    global _kf_state, _kf_P
-    F = np.array([[1, 0, dt,  0],
-                  [0, 1,  0, dt],
-                  [0, 0,  1,  0],
-                  [0, 0,  0,  1]], dtype=float)
-    B = np.array([[0.5*dt**2,        0],
-                  [0,         0.5*dt**2],
-                  [dt,                0],
-                  [0,                dt]], dtype=float)
-    Q = np.diag([KF_PROCESS_POS**2, KF_PROCESS_POS**2,
-                 KF_PROCESS_VEL**2, KF_PROCESS_VEL**2])
-    _kf_state = F @ _kf_state + B @ np.array([ax_east, ay_north])
-    _kf_P     = F @ _kf_P @ F.T + Q
-
-def kf_update_gps(lat, lon):
-    global _kf_state, _kf_P
-    H = np.array([[1, 0, 0, 0],
-                  [0, 1, 0, 0]], dtype=float)
-    R = np.eye(2) * GPS_STD_M**2
-    z = np.array(_to_local(lat, lon))
-    innov = z - H @ _kf_state
-    S = H @ _kf_P @ H.T + R
-    K = _kf_P @ H.T @ np.linalg.inv(S)
-    _kf_state = _kf_state + K @ innov
-    _kf_P     = (np.eye(4) - K @ H) @ _kf_P
-
-def kf_position():
-    return _to_latlon(_kf_state[0], _kf_state[1])
+# --- Position filter ---
+# GPS + accelerometer Kalman filter; see lawnmower/kalman.py for the state and tuning notes.
+kf = PositionFilter()
 
 
 # --- Generate waypoint path ---
@@ -228,31 +172,31 @@ try:
         ax_east, ay_north = read_accelerometer_world(heading)
 
         # --- Kalman predict (dead-reckon forward using accelerometer) ---
-        if _kf_initialized:
-            kf_predict(ax_east, ay_north, dt)
+        if kf.initialized:
+            kf.predict(ax_east, ay_north, dt)
 
         # --- GPS update (correct drift whenever a fix is available) ---
         gps = read_gps()
         if gps is not None:
-            if not _kf_initialized:
-                kf_init(*gps)
+            if not kf.initialized:
+                kf.init(*gps)
             else:
-                kf_update_gps(*gps)
+                kf.update_gps(*gps)
 
-        if not _kf_initialized:
+        if not kf.initialized:
             print("Waiting for GPS fix...")
             time.sleep(0.5)
             continue
 
         # --- Best position estimate from Kalman filter ---
-        cur_lat, cur_lon = kf_position()
+        cur_lat, cur_lon = kf.position()
 
         # --- Path projection: snap lateral position to the current row line ---
         # This prevents GPS noise from causing steering corrections while straight.
         # Not applied on the approach to the very first waypoint (no row yet).
         if prev_waypoint is not None:
             nav_lat, nav_lon = project_onto_row(
-                cur_lat, cur_lon, prev_waypoint, (TARGET_LAT, TARGET_LON), _kf_ref)
+                cur_lat, cur_lon, prev_waypoint, (TARGET_LAT, TARGET_LON), kf.ref)
         else:
             nav_lat, nav_lon = cur_lat, cur_lon
 
