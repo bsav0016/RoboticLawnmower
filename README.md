@@ -45,7 +45,7 @@ The wiring diagram source is [Wiring Diagram.pptx](Wiring%20Diagram.pptx); the p
 | [read_gps.py](read_gps.py) | Print raw GPS fixes |
 | [display_controller_input.py](display_controller_input.py), [find_controller_path.py](find_controller_path.py) | Gamepad discovery and debugging |
 
-The navigation maths shared by the scripts lives in the [lawnmower/](lawnmower) package (`geometry.py`: bearing, distance, local frame and row projection; `steering.py`: compass heading and the turn decision; `kalman.py`: the GPS + accelerometer position filter). It imports no Pi hardware libraries, so it runs and is tested anywhere.
+The navigation maths shared by the scripts lives in the [lawnmower/](lawnmower) package (`geometry.py`: bearing, distance, local frame and row projection; `steering.py`: compass heading and the turn decision; `kalman.py`: the GPS + accelerometer position filter; `hardware/motors.py`: the one motor driver every script uses, with a simulated twin). The package imports no Pi hardware libraries until a real driver is constructed, so it runs and is tested anywhere.
 
 ## Running it
 
@@ -67,7 +67,7 @@ The run stops after `RUNTIME_LIMIT_S` seconds as a safety cutoff.
 python -m unittest discover -s tests
 ```
 
-The tests need no Pi, only `numpy`. They cover the waypoint planner (coordinate conversion, corner ordering, pass count, spacing, coverage and direction for wide and tall fields), the `.env` corner loading, and the `lawnmower/` navigation maths (bearing wraparound, heading error at ±180°, distance, row projection and clamping, compass heading, steering decision), and the Kalman filter (convergence on a fixed target, noise smoothing, dead-reckoning kinematics, uncertainty growth and shrinkage). The sensor reading and motor code still only run on the robot and are not tested; GitHub Actions just checks that every script still compiles, then runs these tests. Dependabot opens weekly pull requests to update the pinned GitHub Actions versions.
+The tests need no Pi, only `numpy`. They cover the waypoint planner (coordinate conversion, corner ordering, pass count, spacing, coverage and direction for wide and tall fields), the `.env` corner loading, and the `lawnmower/` navigation maths (bearing wraparound, heading error at ±180°, distance, row projection and clamping, compass heading, steering decision), the Kalman filter (convergence on a fixed target, noise smoothing, dead-reckoning kinematics, uncertainty growth and shrinkage), and the motor driver's pin and PWM output against a fake GPIO module. The GPS and IMU reading code still only runs on the robot and are not tested; GitHub Actions just checks that every script still compiles, then runs these tests. Dependabot opens weekly pull requests to update the pinned GitHub Actions versions.
 
 ## Milestones
 
