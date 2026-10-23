@@ -45,6 +45,8 @@ The wiring diagram source is [Wiring Diagram.pptx](Wiring%20Diagram.pptx); the p
 | [read_gps.py](read_gps.py) | Print raw GPS fixes |
 | [display_controller_input.py](display_controller_input.py), [find_controller_path.py](find_controller_path.py) | Gamepad discovery and debugging |
 
+The navigation maths shared by the scripts lives in the [lawnmower/](lawnmower) package (`geometry.py`: bearing, distance, local frame and row projection; `steering.py`: compass heading and the turn decision). It imports no Pi hardware libraries, so it runs and is tested anywhere.
+
 ## Running it
 
 On a Raspberry Pi with I²C and the serial port enabled:
@@ -65,7 +67,7 @@ The run stops after `RUNTIME_LIMIT_S` seconds as a safety cutoff.
 python -m unittest discover -s tests
 ```
 
-The tests need no Pi or extra packages. They cover the waypoint planner (coordinate conversion, corner ordering, pass count, spacing, coverage and direction for wide and tall fields) and the `.env` corner loading. The sensor, Kalman filter and motor code only runs on the robot and is not tested; GitHub Actions just checks that every script still compiles, then runs these tests. Dependabot opens weekly pull requests to update the pinned GitHub Actions versions.
+The tests need no Pi or extra packages. They cover the waypoint planner (coordinate conversion, corner ordering, pass count, spacing, coverage and direction for wide and tall fields), the `.env` corner loading, and the `lawnmower/` navigation maths (bearing wraparound, heading error at ±180°, distance, row projection and clamping, compass heading, steering decision). The sensor reading, Kalman filter and motor code still only run on the robot and are not tested; GitHub Actions just checks that every script still compiles, then runs these tests. Dependabot opens weekly pull requests to update the pinned GitHub Actions versions.
 
 ## Milestones
 
