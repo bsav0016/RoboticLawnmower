@@ -2,12 +2,12 @@ import serial
 import pynmea2
 import math
 import time
-import RPi.GPIO as GPIO
 from mpu9250_jmdev.registers import *
 from mpu9250_jmdev.mpu_9250 import MPU9250
 from create_waypoint_list import create_waypoint_list
 from field_config import load_corners
 from lawnmower.geometry import calculate_bearing, distance_meters, heading_error, project_onto_row
+from lawnmower.hardware.motors import GpioMotors
 from lawnmower.kalman import PositionFilter
 from lawnmower.steering import heading_from_magnetometer, steer
 
@@ -35,72 +35,8 @@ mpu = MPU9250(
     mode=AK8963_MODE_C100HZ)
 mpu.configure()
 
-# --- Motor GPIO setup ---
-GPIO.setmode(GPIO.BCM)
-ENA = 18
-IN1 = 17
-IN2 = 27
-ENB = 13
-IN3 = 5
-IN4 = 6
-
-GPIO.setup([ENA, IN1, IN2, ENB, IN3, IN4], GPIO.OUT)
-pwmA = GPIO.PWM(ENA, 1000)
-pwmB = GPIO.PWM(ENB, 1000)
-pwmA.start(0)
-pwmB.start(0)
-
-
-# --- Motor control ---
-def motor_a_forward(speed=50):
-    speed = speed * 0.9
-    GPIO.output(IN1, GPIO.HIGH)
-    GPIO.output(IN2, GPIO.LOW)
-    pwmA.ChangeDutyCycle(speed)
-
-def motor_a_backward(speed=50):
-    speed = speed * 0.9
-    GPIO.output(IN1, GPIO.LOW)
-    GPIO.output(IN2, GPIO.HIGH)
-    pwmA.ChangeDutyCycle(speed)
-
-def motor_b_forward(speed=50):
-    GPIO.output(IN3, GPIO.LOW)
-    GPIO.output(IN4, GPIO.HIGH)
-    pwmB.ChangeDutyCycle(speed)
-
-def motor_b_backward(speed=50):
-    GPIO.output(IN3, GPIO.HIGH)
-    GPIO.output(IN4, GPIO.LOW)
-    pwmB.ChangeDutyCycle(speed)
-
-def stop_motor_a():
-    pwmA.ChangeDutyCycle(0)
-    GPIO.output([IN1, IN2], GPIO.LOW)
-
-def stop_motor_b():
-    pwmB.ChangeDutyCycle(0)
-    GPIO.output([IN3, IN4], GPIO.LOW)
-
-def stop_motors():
-    stop_motor_a()
-    stop_motor_b()
-
-def set_motor_speed(left_speed, right_speed):
-    # Motor A is wired to right side, Motor B to left side
-    if right_speed > 0:
-        motor_a_forward(right_speed)
-    elif right_speed < 0:
-        motor_a_backward(-right_speed)
-    else:
-        stop_motor_a()
-
-    if left_speed > 0:
-        motor_b_forward(left_speed)
-    elif left_speed < 0:
-        motor_b_backward(-left_speed)
-    else:
-        stop_motor_b()
+# --- Motors ---
+motors = GpioMotors()
 
 
 # --- GPS ---
@@ -222,14 +158,11 @@ try:
         error   = heading_error(heading, bearing)
         print(f"Heading: {heading:.1f}° | Target bearing: {bearing:.1f}° | Error: {error:.1f}°")
 
-        set_motor_speed(*steer(error, FORWARD_SPEED, TURN_SPEED, HEADING_THRESHOLD))
+        motors.set_speed(*steer(error, FORWARD_SPEED, TURN_SPEED, HEADING_THRESHOLD))
 
 except KeyboardInterrupt:
     print("\nInterrupted.")
 finally:
-    stop_motors()
-    pwmA.stop()
-    pwmB.stop()
-    GPIO.cleanup()
+    motors.close()
     gps_port.close()
     print("Shutdown complete.")
