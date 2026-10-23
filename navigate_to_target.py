@@ -1,10 +1,11 @@
 import serial
 import pynmea2
-import math
 import time
 import RPi.GPIO as GPIO
 from mpu9250_jmdev.registers import *
 from mpu9250_jmdev.mpu_9250 import MPU9250
+from lawnmower.geometry import calculate_bearing, distance_meters, heading_error
+from lawnmower.steering import heading_from_magnetometer, steer
 
 # --- Target GPS Coordinate ---
 TARGET_LAT = 37.123456
@@ -116,41 +117,7 @@ def read_gps():
 # --- Magnetometer ---
 def read_heading():
     mx, my, mz = mpu.readMagnetometerMaster()
-    mx -= 23
-    my -= 8
-    heading_rad = math.atan2(mx, my)
-    heading_deg = math.degrees(heading_rad) - 90
-    if heading_deg < 0:
-        heading_deg += 360
-    return heading_deg
-
-
-# --- Navigation math ---
-def calculate_bearing(cur_lat, cur_lon, tgt_lat, tgt_lon):
-    lat1 = math.radians(cur_lat)
-    lat2 = math.radians(tgt_lat)
-    dlon = math.radians(tgt_lon - cur_lon)
-    x = math.sin(dlon) * math.cos(lat2)
-    y = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dlon)
-    bearing = math.degrees(math.atan2(x, y))
-    return (bearing + 360) % 360
-
-def heading_error(current_heading, target_bearing):
-    error = target_bearing - current_heading
-    # Normalize to -180..180
-    if error > 180:
-        error -= 360
-    elif error < -180:
-        error += 360
-    return error
-
-def distance_meters(cur_lat, cur_lon, tgt_lat, tgt_lon):
-    R = 6371000  # Earth radius in meters
-    lat1, lat2 = math.radians(cur_lat), math.radians(tgt_lat)
-    dlat = math.radians(tgt_lat - cur_lat)
-    dlon = math.radians(tgt_lon - cur_lon)
-    a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
-    return R * 2 * math.asin(math.sqrt(a))
+    return heading_from_magnetometer(mx, my)
 
 
 # --- Main loop ---
@@ -183,15 +150,7 @@ try:
         error = heading_error(heading, bearing)
         print(f"Heading: {heading:.1f}° | Target bearing: {bearing:.1f}° | Error: {error:.1f}°")
 
-        if error > HEADING_THRESHOLD:
-            # Turn right
-            set_motor_speed(FORWARD_SPEED, TURN_SPEED)
-        elif error < -HEADING_THRESHOLD:
-            # Turn left
-            set_motor_speed(TURN_SPEED, FORWARD_SPEED)
-        else:
-            # Go straight
-            set_motor_speed(FORWARD_SPEED, FORWARD_SPEED)
+        set_motor_speed(*steer(error, FORWARD_SPEED, TURN_SPEED, HEADING_THRESHOLD))
 
 except KeyboardInterrupt:
     print("\nInterrupted.")

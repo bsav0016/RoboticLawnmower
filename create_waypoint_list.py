@@ -4,6 +4,7 @@ import math
 # Order does not matter; the script will sort them automatically.
 # Corners come from the local .env file (see .env.example) when run standalone.
 from field_config import load_corners
+from lawnmower.geometry import to_gps, to_meters  # noqa: F401
 
 # --- Lawnmower spacing (meters between parallel passes) ---
 PASS_SPACING_M = 1.0
@@ -16,18 +17,7 @@ OUTPUT_FILE = "waypoints.py"
 # Coordinate helpers (flat-earth approximation, valid for small areas ~<1 km)
 # ---------------------------------------------------------------------------
 
-def to_meters(lat, lon, ref_lat, ref_lon):
-    """Convert a GPS point to (x, y) meters relative to a reference point."""
-    y = (lat - ref_lat) * 111111.0
-    x = (lon - ref_lon) * 111111.0 * math.cos(math.radians(ref_lat))
-    return x, y
-
-
-def to_gps(x, y, ref_lat, ref_lon):
-    """Convert (x, y) meters back to GPS given a reference point."""
-    lat = ref_lat + y / 111111.0
-    lon = ref_lon + x / (111111.0 * math.cos(math.radians(ref_lat)))
-    return lat, lon
+# to_meters / to_gps live in lawnmower.geometry and are re-exported here.
 
 
 # ---------------------------------------------------------------------------

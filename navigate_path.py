@@ -8,6 +8,8 @@ from mpu9250_jmdev.registers import *
 from mpu9250_jmdev.mpu_9250 import MPU9250
 from create_waypoint_list import create_waypoint_list
 from field_config import load_corners
+from lawnmower.geometry import calculate_bearing, distance_meters, heading_error, project_onto_row, to_gps, to_meters
+from lawnmower.steering import heading_from_magnetometer, steer
 
 # --- Lawnmower field corners (lat, lon) ---
 CORNER_A, CORNER_B, CORNER_C, CORNER_D = load_corners()  # from .env
@@ -118,13 +120,7 @@ def read_gps():
 # --- Magnetometer ---
 def read_heading():
     mx, my, mz = mpu.readMagnetometerMaster()
-    mx -= 23
-    my -= 8
-    heading_rad = math.atan2(mx, my)
-    heading_deg = math.degrees(heading_rad) - 90
-    if heading_deg < 0:
-        heading_deg += 360
-    return heading_deg
+    return heading_from_magnetometer(mx, my)
 
 
 # --- Accelerometer ---
@@ -162,16 +158,10 @@ _kf_ref   = None   # (lat, lon) origin of local coordinate system
 
 
 def _to_local(lat, lon):
-    ref_lat, ref_lon = _kf_ref
-    y = (lat - ref_lat) * 111111.0
-    x = (lon - ref_lon) * 111111.0 * math.cos(math.radians(ref_lat))
-    return x, y
+    return to_meters(lat, lon, *_kf_ref)
 
 def _to_latlon(x, y):
-    ref_lat, ref_lon = _kf_ref
-    lat = ref_lat + y / 111111.0
-    lon = ref_lon + x / (111111.0 * math.cos(math.radians(ref_lat)))
-    return lat, lon
+    return to_gps(x, y, *_kf_ref)
 
 def kf_init(lat, lon):
     global _kf_initialized, _kf_state, _kf_P, _kf_ref
@@ -209,48 +199,6 @@ def kf_update_gps(lat, lon):
 
 def kf_position():
     return _to_latlon(_kf_state[0], _kf_state[1])
-
-
-# --- Navigation math ---
-def calculate_bearing(cur_lat, cur_lon, tgt_lat, tgt_lon):
-    lat1 = math.radians(cur_lat)
-    lat2 = math.radians(tgt_lat)
-    dlon = math.radians(tgt_lon - cur_lon)
-    x = math.sin(dlon) * math.cos(lat2)
-    y = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dlon)
-    bearing = math.degrees(math.atan2(x, y))
-    return (bearing + 360) % 360
-
-def heading_error(current_heading, target_bearing):
-    error = target_bearing - current_heading
-    if error > 180:
-        error -= 360
-    elif error < -180:
-        error += 360
-    return error
-
-def distance_meters(cur_lat, cur_lon, tgt_lat, tgt_lon):
-    R = 6371000
-    lat1, lat2 = math.radians(cur_lat), math.radians(tgt_lat)
-    dlat = math.radians(tgt_lat - cur_lat)
-    dlon = math.radians(tgt_lon - cur_lon)
-    a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
-    return R * 2 * math.asin(math.sqrt(a))
-
-def project_onto_row(cur_lat, cur_lon, row_start, row_end):
-    """Project the current position onto the current row line segment.
-    This eliminates lateral drift during straight runs — the robot navigates
-    as if it's exactly on the line, so small sideways GPS errors don't cause
-    unnecessary steering corrections."""
-    px, py = _to_local(cur_lat, cur_lon)
-    ax, ay = _to_local(*row_start)
-    bx, by = _to_local(*row_end)
-    dx, dy = bx - ax, by - ay
-    seg_len_sq = dx*dx + dy*dy
-    if seg_len_sq < 1e-10:
-        return cur_lat, cur_lon
-    t = max(0.0, min(1.0, ((px - ax)*dx + (py - ay)*dy) / seg_len_sq))
-    return _to_latlon(ax + t*dx, ay + t*dy)
 
 
 # --- Generate waypoint path ---
@@ -304,7 +252,7 @@ try:
         # Not applied on the approach to the very first waypoint (no row yet).
         if prev_waypoint is not None:
             nav_lat, nav_lon = project_onto_row(
-                cur_lat, cur_lon, prev_waypoint, (TARGET_LAT, TARGET_LON))
+                cur_lat, cur_lon, prev_waypoint, (TARGET_LAT, TARGET_LON), _kf_ref)
         else:
             nav_lat, nav_lon = cur_lat, cur_lon
 
@@ -330,12 +278,7 @@ try:
         error   = heading_error(heading, bearing)
         print(f"Heading: {heading:.1f}° | Target bearing: {bearing:.1f}° | Error: {error:.1f}°")
 
-        if error > HEADING_THRESHOLD:
-            set_motor_speed(FORWARD_SPEED, TURN_SPEED)
-        elif error < -HEADING_THRESHOLD:
-            set_motor_speed(TURN_SPEED, FORWARD_SPEED)
-        else:
-            set_motor_speed(FORWARD_SPEED, FORWARD_SPEED)
+        set_motor_speed(*steer(error, FORWARD_SPEED, TURN_SPEED, HEADING_THRESHOLD))
 
 except KeyboardInterrupt:
     print("\nInterrupted.")
