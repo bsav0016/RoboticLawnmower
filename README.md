@@ -11,7 +11,7 @@ A Raspberry Pi 4 rover that drives itself over a GPS-bounded rectangle in a bous
 
 ## How it works
 
-1. **Coverage planning** – [create_waypoint_list.py](create_waypoint_list.py) takes four corner coordinates, converts them to a local meter grid (flat-earth approximation, fine under ~1 km), and generates evenly spaced parallel passes. The result is written to [waypoints.py](waypoints.py).
+1. **Coverage planning** – [create_waypoint_list.py](create_waypoint_list.py) takes four corner coordinates, converts them to a local meter grid (flat-earth approximation, fine under ~1 km), and generates evenly spaced parallel passes. The corners are checked first ([lawnmower/field.py](lawnmower/field.py)): a field wider than 500 m, corners on top of each other, a line instead of an area or a plan of more than 5,000 waypoints stops with a message instead of a plan. The result is written to [waypoints.py](waypoints.py).
 2. **Sensing** – a NEO-6M GPS (UART, NMEA via `pynmea2`) gives position; an MPU-9250 gives magnetometer heading and acceleration over I²C.
 3. **State estimation** – [navigate_path.py](navigate_path.py) runs a 4-state Kalman filter (`x, y, vx, vy`). The accelerometer, rotated into the East/North frame using the compass heading, drives the predict step, and GPS fixes drive the update step. GPS alone was too noisy to steer on, and the robot has no wheel encoders, so the filter bridges the gaps.
 4. **Path following** – the position estimate is projected onto the current row so sideways GPS error does not cause needless steering. Heading error against the target bearing selects straight driving or a differential-speed turn.
@@ -82,7 +82,7 @@ The tests need no Pi, only `numpy`. They cover the waypoint planner (coordinate 
 
 - Consumer GPS wanders by several meters, so raw fixes make the robot hunt. A simple EMA helped but did not fix it; fusing the IMU in a Kalman filter did more.
 - Without wheel encoders, speed is unknown on hills and rough ground. Accelerometer integration drifts, so GPS has to remain the long-term anchor.
-- One mistyped digit in a corner longitude (`-86` for `-85`) made the planner generate about 175,000 waypoints for a field roughly 87 km wide. Validating field size before planning is on the to-do list.
+- One mistyped digit in a corner longitude (`-86` for `-85`) made the planner generate about 175,000 waypoints for a field roughly 87 km wide. The planner now refuses a field like that (and other impossible shapes) with a message that says what to check; the field limits are in [lawnmower/field.py](lawnmower/field.py).
 
 ## License
 

@@ -4,6 +4,7 @@ import math
 # Order does not matter; the script will sort them automatically.
 # Corners come from the local .env file (see .env.example) when run standalone.
 from field_config import load_corners
+from lawnmower.field import FieldError, check_corners
 from lawnmower.geometry import to_gps, to_meters  # noqa: F401
 
 # --- Lawnmower spacing (meters between parallel passes) ---
@@ -122,8 +123,12 @@ def create_waypoint_list(corner_a, corner_b, corner_c, corner_d, spacing_m=1.0):
 
     Returns:
         List of (lat, lon) tuples.
+
+    Raises:
+        FieldError: the corners or spacing cannot make a sensible plan (see lawnmower/field.py).
     """
     corners = [corner_a, corner_b, corner_c, corner_d]
+    check_corners(corners, spacing_m)
     ordered = order_corners(corners)
     return generate_lawnmower(ordered, spacing_m)
 
@@ -133,7 +138,10 @@ def create_waypoint_list(corner_a, corner_b, corner_c, corner_d, spacing_m=1.0):
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    waypoints = create_waypoint_list(*load_corners(), spacing_m=PASS_SPACING_M)
+    try:
+        waypoints = create_waypoint_list(*load_corners(), spacing_m=PASS_SPACING_M)
+    except FieldError as error:
+        raise SystemExit(f"Cannot plan this field: {error}")
 
     print(f"Generated {len(waypoints)} waypoints ({len(waypoints) // 2} passes):\n")
     for i, (lat, lon) in enumerate(waypoints):

@@ -24,7 +24,10 @@ def _corner(name, file_values):
     raw = os.environ.get(name) or file_values.get(name)
     if not raw:
         raise SystemExit(f"{name} is not set. Copy .env.example to .env and fill in the field corners.")
-    lat, lon = (float(part) for part in raw.split(","))
+    try:
+        lat, lon = (float(part) for part in raw.split(","))
+    except ValueError:
+        raise SystemExit(f'{name} is "{raw}", which is not a "lat,lon" pair such as 37.000000,-122.000000.')
     return lat, lon
 
 
