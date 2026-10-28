@@ -22,6 +22,8 @@ MIN_AREA_M2 = 1.0
 MAX_INSET_M = 20.0
 # More no-go zones than this is almost certainly a mistake.
 MAX_EXCLUSIONS = 50
+# A cutting deck wider than this is almost certainly a typo.
+MAX_CUT_WIDTH_M = 10.0
 # Closer passes than this make no sense against consumer GPS error, and a zero spacing would never finish.
 MIN_SPACING_M = 0.1
 # A plan with more waypoints than this is almost certainly a mistake (a 500 m square at 1 m spacing is about 1,000).
@@ -36,12 +38,19 @@ class FieldError(ValueError):
 class Field:
     """What to mow: the boundary as (lat, lon) points, the spacing between passes, how far to keep the passes inside
     the boundary (0 puts the end of each pass on it, and the same distance is kept from no-go zones), optionally the
-    compass heading of the passes, and the no-go zones (each a ring of (lat, lon) points inside the boundary)."""
+    compass heading of the passes, the no-go zones (each a ring of (lat, lon) points inside the boundary), and how far
+    beyond the end of a pass the rover swings out to turn round (0 = turn straight onto the next pass).
+
+    pass_spacing_m is the distance between passes. It is either given directly, or worked out from the cutting width
+    as cut_width_m - overlap_m (cut_width_m and overlap_m are kept here only to show in the preview)."""
     boundary: tuple
     pass_spacing_m: float = DEFAULT_SPACING_M
     inset_m: float = 0.0
     heading_deg: float = None
     exclusions: tuple = ()
+    turn_depth_m: float = 0.0
+    cut_width_m: float = None
+    overlap_m: float = 0.0
 
     @property
     def corners(self):
@@ -53,7 +62,8 @@ class Field:
         return list(self.boundary)
 
 
-_SETTINGS = ("boundary", "pass_spacing_m", "inset_m", "heading_deg", "exclusions")
+_SETTINGS = ("boundary", "pass_spacing_m", "inset_m", "heading_deg", "exclusions", "turn_depth_m",
+             "cut_width_m", "overlap_m")
 
 
 def _parse_ring(raw, what, name):
@@ -74,10 +84,11 @@ def parse_field(data):
     """Turn the contents of a field.json file (already decoded from JSON) into a Field.
 
     {"boundary": [[lat, lon], ...], "pass_spacing_m": 1.0, "inset_m": 0, "heading_deg": 90,
-     "exclusions": [[[lat, lon], ...], ...]}
+     "exclusions": [[[lat, lon], ...], ...], "turn_depth_m": 0, "cut_width_m": 0.8, "overlap_m": 0.1}
     Only "boundary" is required. heading_deg is the compass direction the passes run (0 = north, 90 = east); left
     out, they run along the longest side. Each exclusion is a no-go zone: a ring of at least 3 points inside the
-    boundary.
+    boundary. cut_width_m and overlap_m replace pass_spacing_m (spacing = cut width - overlap); turn_depth_m is how
+    far past the end of a pass the rover swings out to turn, and cannot be more than inset_m.
 
     Raises FieldError for anything that is not understood, so a misspelt setting is not silently ignored."""
     if not isinstance(data, dict):
@@ -94,9 +105,27 @@ def parse_field(data):
         raise FieldError(f'"exclusions" must be a list of at most {MAX_EXCLUSIONS} no-go zones.')
     exclusions = tuple(_parse_ring(zone, f'Exclusion {i}', f"Exclusion {i}") for i, zone in enumerate(raw_zones, 1))
 
-    spacing = data.get("pass_spacing_m", DEFAULT_SPACING_M)
-    if isinstance(spacing, bool) or not isinstance(spacing, (int, float)):
-        raise FieldError(f'"pass_spacing_m" must be a number, not {spacing!r}.')
+    cut_width, overlap = data.get("cut_width_m"), data.get("overlap_m")
+    if cut_width is not None and "pass_spacing_m" in data:
+        raise FieldError('Set either "pass_spacing_m" or "cut_width_m" (the spacing is the cut width minus the overlap).')
+    if overlap is not None and cut_width is None:
+        raise FieldError('"overlap_m" needs "cut_width_m".')
+    if cut_width is not None:
+        if isinstance(cut_width, bool) or not isinstance(cut_width, (int, float)) or not 0 < cut_width <= MAX_CUT_WIDTH_M:
+            raise FieldError(f'"cut_width_m" must be a number above 0 and at most {MAX_CUT_WIDTH_M:g}, not {cut_width!r}.')
+        overlap = 0.0 if overlap is None else overlap
+        if isinstance(overlap, bool) or not isinstance(overlap, (int, float)) or overlap < 0:
+            raise FieldError(f'"overlap_m" must be a number of 0 or more, not {overlap!r}.')
+        spacing = cut_width - overlap
+        if spacing < MIN_SPACING_M:
+            raise FieldError(
+                f'An overlap of {overlap:g} m on a {cut_width:g} m cut leaves a pass spacing of {spacing:g} m; '
+                f'it must be at least {MIN_SPACING_M} m.'
+            )
+    else:
+        spacing = data.get("pass_spacing_m", DEFAULT_SPACING_M)
+        if isinstance(spacing, bool) or not isinstance(spacing, (int, float)):
+            raise FieldError(f'"pass_spacing_m" must be a number, not {spacing!r}.')
 
     inset = data.get("inset_m", 0.0)
     if isinstance(inset, bool) or not isinstance(inset, (int, float)) or not 0 <= inset <= MAX_INSET_M:
@@ -107,8 +136,19 @@ def parse_field(data):
         if isinstance(heading, bool) or not isinstance(heading, (int, float)) or not math.isfinite(heading):
             raise FieldError(f'"heading_deg" must be a number, not {heading!r}.')
         heading = float(heading) % 180  # a pass can be driven either way, so 90 and 270 are the same line
+
+    turn_depth = data.get("turn_depth_m", 0.0)
+    if isinstance(turn_depth, bool) or not isinstance(turn_depth, (int, float)) or not 0 <= turn_depth <= MAX_INSET_M:
+        raise FieldError(f'"turn_depth_m" must be a number from 0 to {MAX_INSET_M:g}, not {turn_depth!r}.')
+    if turn_depth > inset:
+        raise FieldError(
+            f'"turn_depth_m" ({turn_depth:g}) cannot be more than "inset_m" ({inset:g}): the turns happen in the '
+            'margin between the passes and the boundary.'
+        )
     return Field(boundary=boundary, pass_spacing_m=float(spacing), inset_m=float(inset), heading_deg=heading,
-                 exclusions=exclusions)
+                 exclusions=exclusions, turn_depth_m=float(turn_depth),
+                 cut_width_m=None if cut_width is None else float(cut_width),
+                 overlap_m=0.0 if overlap is None else float(overlap))
 
 
 def _check_corner(name, lat, lon):
