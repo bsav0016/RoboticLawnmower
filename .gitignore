@@ -21,6 +21,7 @@ Thumbs.db
 
 # Local field coordinates
 .env
+field.json
 
 # Local notes
 Claude Context.docx

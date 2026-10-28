@@ -2,13 +2,13 @@ import math
 
 # --- Define the 4 corner GPS coordinates of the box ---
 # Order does not matter; the script will sort them automatically.
-# Corners come from the local .env file (see .env.example) when run standalone.
-from field_config import load_corners
-from lawnmower.field import FieldError, check_corners
+# The field comes from the local field.json or .env file (see field.example.json and .env.example) when run standalone.
+from field_config import load_field
+from lawnmower.field import DEFAULT_SPACING_M, FieldError, check_corners
 from lawnmower.geometry import to_gps, to_meters  # noqa: F401
 
 # --- Lawnmower spacing (meters between parallel passes) ---
-PASS_SPACING_M = 1.0
+PASS_SPACING_M = DEFAULT_SPACING_M
 
 # --- Output file ---
 OUTPUT_FILE = "waypoints.py"
@@ -139,7 +139,8 @@ def create_waypoint_list(corner_a, corner_b, corner_c, corner_d, spacing_m=1.0):
 
 if __name__ == "__main__":
     try:
-        waypoints = create_waypoint_list(*load_corners(), spacing_m=PASS_SPACING_M)
+        field = load_field()
+        waypoints = create_waypoint_list(*field.corners, spacing_m=field.pass_spacing_m)
     except FieldError as error:
         raise SystemExit(f"Cannot plan this field: {error}")
 

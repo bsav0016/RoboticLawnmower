@@ -6,13 +6,13 @@ import RPi.GPIO as GPIO
 from mpu9250_jmdev.registers import *
 from mpu9250_jmdev.mpu_9250 import MPU9250
 from create_waypoint_list import create_waypoint_list
-from field_config import load_corners
+from field_config import load_field
 from lawnmower.geometry import calculate_bearing, distance_meters, heading_error, project_onto_row
 from lawnmower.kalman import PositionFilter
 from lawnmower.steering import heading_from_magnetometer, steer
 
 # --- Lawnmower field corners (lat, lon) ---
-CORNER_A, CORNER_B, CORNER_C, CORNER_D = load_corners()  # from .env
+FIELD = load_field()  # from field.json, or the corners in .env
 
 # --- Navigation constants ---
 STOP_DISTANCE_M = 0.5       # Waypoint reached when within 0.5 meters
@@ -146,7 +146,7 @@ kf = PositionFilter()
 
 
 # --- Generate waypoint path ---
-WAYPOINTS = create_waypoint_list(CORNER_A, CORNER_B, CORNER_C, CORNER_D)
+WAYPOINTS = create_waypoint_list(*FIELD.corners, spacing_m=FIELD.pass_spacing_m)
 waypoint_index = 0
 TARGET_LAT, TARGET_LON = WAYPOINTS[waypoint_index]
 prev_waypoint = None   # Tracks row start for path projection; set when a waypoint is reached
