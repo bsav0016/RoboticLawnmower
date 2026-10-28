@@ -9,6 +9,9 @@ Passes in neighbouring rows that continue each other form a "cell", mown in bous
 waypoint at each bend so the rover never cuts across the outside of the field. The cells are then visited
 nearest-first, and between cells the rover follows the shortest route through the free space (around no-go zones and
 notches), never a straight line across them.
+
+Optionally (turn_depth_m), where the rover has to turn round between two passes, it swings out past the end of the
+pass first: two extra waypoints that give a rover which turns in arcs, not on the spot, room to come round.
 """
 import heapq
 import math
@@ -293,25 +296,39 @@ def _chains(rows):
     return chains
 
 
-def _drive(chain, start_high=False):
+def _drive(chain, start_high=False, swing=None):
     """Waypoints (point, index) for a chain of passes in order: alternate directions, with a connecting point where
-    the next pass does not start under the end of the last one. `index` is the position of the pass in the chain."""
+    the next pass does not start under the end of the last one. `index` is the position of the pass in the chain.
+
+    `swing` is None, or (depth, space): at each turn-round the rover is sent `depth` on past the end of the pass, then
+    across to just past the start of the next one, instead of the direct step, provided all three legs are free in
+    `space` (the real boundary, without the margin)."""
     waypoints = []
     position = None  # the end of the last pass
+    direction = 0  # which way the last pass ran along a: +1 or -1
     for index, (b, a_low, a_high) in enumerate(chain):
         if position is None:
             start, end = (a_high, a_low) if start_high else (a_low, a_high)
         else:
             pa, pb = position
             start, end = (a_low, a_high) if abs(pa - a_low) <= abs(pa - a_high) else (a_high, a_low)
+            connectors = []
             if abs(pa - start) > _SAME_PLACE_M:
                 if a_low - _SAME_PLACE_M <= pa <= a_high + _SAME_PLACE_M:
-                    waypoints.append(((pa, b), index))  # step across at the end of the last pass, then along this one
+                    connectors = [(pa, b)]  # step across at the end of the last pass, then along this one
                 else:
-                    waypoints.append(((start, pb), index))  # back along the last pass to under the start, then step
+                    connectors = [(start, pb)]  # back along the last pass to under the start, then step
+            if swing is not None and (end - start) * direction < 0:
+                depth, space = swing
+                out_end, out_start = (pa + direction * depth, pb), (start + direction * depth, b)
+                legs = [((pa, pb), out_end), (out_end, out_start), (out_start, (start, b))]
+                if all(space.route_free(p, q) for p, q in legs):
+                    connectors = [out_end, out_start]
+            waypoints.extend((c, index) for c in connectors)
         waypoints.append(((start, b), index))
         waypoints.append(((end, b), index))
         position = (end, b)
+        direction = 1 if end > start else -1
     return waypoints
 
 
@@ -340,16 +357,16 @@ def _cells(rows, space):
     return cells
 
 
-def _sequence(cells, space):
+def _sequence(cells, space, swing=None):
     """Waypoints (a, b) visiting every cell: lowest first, then the nearest by route, joined by shortest routes."""
     variants = []
     for cell in cells:
         options = []
         for reverse in (False, True):
             for start_high in (False, True):
-                points = _drive(cell[::-1] if reverse else cell, start_high)
-                if _first_blocked_pass(points, space) is None:
-                    options.append([p for p, _ in points])
+                chain = cell[::-1] if reverse else cell
+                if _first_blocked_pass(_drive(chain, start_high), space) is None:
+                    options.append([p for p, _ in _drive(chain, start_high, swing)])
         variants.append(options)
 
     first = min(range(len(cells)), key=lambda c: (cells[c][0][0], cells[c][0][1]))
@@ -380,7 +397,7 @@ def _sequence(cells, space):
     return waypoints
 
 
-def plan_coverage(boundary, spacing_m, inset_m=0.0, heading_deg=None, exclusions=()):
+def plan_coverage(boundary, spacing_m, inset_m=0.0, heading_deg=None, exclusions=(), turn_depth_m=0.0):
     """Waypoints (lat, lon) covering a polygon field, avoiding no-go zones.
 
     boundary: (lat, lon) points in order around the field (for exactly four points, in any order).
@@ -388,8 +405,16 @@ def plan_coverage(boundary, spacing_m, inset_m=0.0, heading_deg=None, exclusions
     heading_deg: compass direction of the passes (0 = north, 90 = east); None picks one automatically: the direction
     of the longest side if that gives one continuous run, otherwise the side direction with the fewest pieces.
     exclusions: no-go zones, each a ring of (lat, lon) points inside the boundary.
+    turn_depth_m: how far past the end of a pass the rover swings out to turn round (0 = turn straight onto the next
+    pass). Needs room: it cannot be more than inset_m, and a turn that would leave the field or enter a no-go zone is
+    left as it was.
 
     Raises FieldError when the field cannot be planned, with a message that says what to change."""
+    if turn_depth_m < 0 or turn_depth_m > inset_m:
+        raise FieldError(
+            f"turn_depth_m ({turn_depth_m:g}) must be between 0 and inset_m ({inset_m:g}): the turns happen in the "
+            "margin between the passes and the boundary."
+        )
     prepared = prepare_field(boundary, spacing_m, inset_m, exclusions)
     ref_lat, ref_lon = prepared.ref
 
@@ -412,9 +437,15 @@ def plan_coverage(boundary, spacing_m, inset_m=0.0, heading_deg=None, exclusions
         raise FieldError("No passes fit inside the field. Check the boundary, the spacing and the inset.")
     cells, space, u = best
 
+    swing = None
+    if turn_depth_m > 0:
+        real = _Space(_to_frame(prepared.outline, u), [_to_frame(z, u) for z in prepared.exclusions])
+        swing = (turn_depth_m, real)
+    sequence = _sequence(cells, space, swing)
+
     v = (-u[1], u[0])
     waypoints = []
-    for a, b in _sequence(cells, space):
+    for a, b in sequence:
         x, y = a * u[0] + b * v[0], a * u[1] + b * v[1]
         waypoints.append(to_gps(x, y, ref_lat, ref_lon))
     if len(waypoints) > MAX_WAYPOINTS:

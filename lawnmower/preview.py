@@ -31,6 +31,9 @@ def _summary(field, waypoints, outline):
         "area_m2": round(signed_area(outline), 1),
         "pass_spacing_m": field.pass_spacing_m,
         "inset_m": field.inset_m,
+        "turn_depth_m": field.turn_depth_m,
+        "cut_width_m": field.cut_width_m,
+        "overlap_m": field.overlap_m,
     }
 
 
@@ -111,6 +114,10 @@ def plan_svg(field, waypoints):
     title = "Mowing plan"
     footer = (f"{summary['waypoints']} waypoints | path {summary['path_length_m']:g} m | "
               f"field {summary['area_m2']:g} m2 | spacing {field.pass_spacing_m:g} m | inset {field.inset_m:g} m")
+    if field.cut_width_m is not None:
+        footer += f" | cut {field.cut_width_m:g} m, overlap {field.overlap_m:g} m"
+    if field.turn_depth_m > 0:
+        footer += f" | turns {field.turn_depth_m:g} m out"
 
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width:.0f}" height="{height:.0f}" '
