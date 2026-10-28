@@ -7,7 +7,7 @@ import math
 from dataclasses import dataclass
 
 from lawnmower.geometry import to_meters
-from lawnmower.polygon import counter_clockwise, is_simple, signed_area
+from lawnmower.polygon import counter_clockwise, edges_cross, is_simple, signed_area
 
 # Meters between parallel passes when the field does not say.
 DEFAULT_SPACING_M = 1.0
@@ -20,6 +20,8 @@ MIN_CORNER_GAP_M = 0.5
 MIN_AREA_M2 = 1.0
 # How far the boundary may be moved inwards.
 MAX_INSET_M = 20.0
+# More no-go zones than this is almost certainly a mistake.
+MAX_EXCLUSIONS = 50
 # Closer passes than this make no sense against consumer GPS error, and a zero spacing would never finish.
 MIN_SPACING_M = 0.1
 # A plan with more waypoints than this is almost certainly a mistake (a 500 m square at 1 m spacing is about 1,000).
@@ -33,11 +35,13 @@ class FieldError(ValueError):
 @dataclass(frozen=True)
 class Field:
     """What to mow: the boundary as (lat, lon) points, the spacing between passes, how far to keep the passes inside
-    the boundary (0 puts the end of each pass on it), and optionally the compass heading of the passes."""
+    the boundary (0 puts the end of each pass on it, and the same distance is kept from no-go zones), optionally the
+    compass heading of the passes, and the no-go zones (each a ring of (lat, lon) points inside the boundary)."""
     boundary: tuple
     pass_spacing_m: float = DEFAULT_SPACING_M
     inset_m: float = 0.0
     heading_deg: float = None
+    exclusions: tuple = ()
 
     @property
     def corners(self):
@@ -49,37 +53,46 @@ class Field:
         return list(self.boundary)
 
 
-_SETTINGS = ("boundary", "pass_spacing_m", "inset_m", "heading_deg")
+_SETTINGS = ("boundary", "pass_spacing_m", "inset_m", "heading_deg", "exclusions")
+
+
+def _parse_ring(raw, what, name):
+    """A list of at least 3 [lat, lon] pairs as a tuple of (lat, lon) tuples."""
+    if not isinstance(raw, list) or len(raw) < 3:
+        raise FieldError(f"{what} must be a list of at least 3 [lat, lon] points.")
+    points = []
+    for index, point in enumerate(raw, start=1):
+        ok = (isinstance(point, list) and len(point) == 2
+              and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in point))
+        if not ok:
+            raise FieldError(f"{name} point {index} is {point!r}; it must be two numbers, [lat, lon].")
+        points.append((float(point[0]), float(point[1])))
+    return tuple(points)
 
 
 def parse_field(data):
     """Turn the contents of a field.json file (already decoded from JSON) into a Field.
 
-    {"boundary": [[lat, lon], ...], "pass_spacing_m": 1.0, "inset_m": 0, "heading_deg": 90}
+    {"boundary": [[lat, lon], ...], "pass_spacing_m": 1.0, "inset_m": 0, "heading_deg": 90,
+     "exclusions": [[[lat, lon], ...], ...]}
     Only "boundary" is required. heading_deg is the compass direction the passes run (0 = north, 90 = east); left
-    out, they run along the longest side.
+    out, they run along the longest side. Each exclusion is a no-go zone: a ring of at least 3 points inside the
+    boundary.
 
     Raises FieldError for anything that is not understood, so a misspelt setting is not silently ignored."""
     if not isinstance(data, dict):
         raise FieldError('The field file must be an object such as {"boundary": [[lat, lon], ...]}.')
     for key in data:
-        if key == "exclusions":
-            raise FieldError('"exclusions" (no-go zones) are not supported yet.')
         if key not in _SETTINGS:
             raise FieldError(f'Unknown setting "{key}". The settings are: {", ".join(_SETTINGS)}.')
     if "boundary" not in data:
         raise FieldError('The field file needs a "boundary": a list of [lat, lon] points.')
 
-    raw = data["boundary"]
-    if not isinstance(raw, list) or len(raw) < 3:
-        raise FieldError('"boundary" must be a list of at least 3 [lat, lon] points.')
-    boundary = []
-    for index, point in enumerate(raw, start=1):
-        ok = (isinstance(point, list) and len(point) == 2
-              and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in point))
-        if not ok:
-            raise FieldError(f'Boundary point {index} is {point!r}; it must be two numbers, [lat, lon].')
-        boundary.append((float(point[0]), float(point[1])))
+    boundary = _parse_ring(data["boundary"], '"boundary"', "Boundary")
+    raw_zones = data.get("exclusions", [])
+    if not isinstance(raw_zones, list) or len(raw_zones) > MAX_EXCLUSIONS:
+        raise FieldError(f'"exclusions" must be a list of at most {MAX_EXCLUSIONS} no-go zones.')
+    exclusions = tuple(_parse_ring(zone, f'Exclusion {i}', f"Exclusion {i}") for i, zone in enumerate(raw_zones, 1))
 
     spacing = data.get("pass_spacing_m", DEFAULT_SPACING_M)
     if isinstance(spacing, bool) or not isinstance(spacing, (int, float)):
@@ -94,7 +107,8 @@ def parse_field(data):
         if isinstance(heading, bool) or not isinstance(heading, (int, float)) or not math.isfinite(heading):
             raise FieldError(f'"heading_deg" must be a number, not {heading!r}.')
         heading = float(heading) % 180  # a pass can be driven either way, so 90 and 270 are the same line
-    return Field(boundary=tuple(boundary), pass_spacing_m=float(spacing), inset_m=float(inset), heading_deg=heading)
+    return Field(boundary=boundary, pass_spacing_m=float(spacing), inset_m=float(inset), heading_deg=heading,
+                 exclusions=exclusions)
 
 
 def _check_corner(name, lat, lon):
@@ -193,9 +207,40 @@ def check_boundary(boundary, spacing_m):
             raise FieldError(
                 f"Boundary points {i + 1} and {j + 1} are the same point (less than {MIN_CORNER_GAP_M} m apart)."
             )
+    if edges_cross(pts):
+        raise FieldError("The boundary crosses itself. List the points in order around the field.")
     area = _polygon_area(pts)
     if area < MIN_AREA_M2:
         raise FieldError(f"The boundary encloses only {area:.2f} m2; the points are almost in a line.")
     if not is_simple(pts):
         raise FieldError("The boundary crosses itself. List the points in order around the field.")
     return counter_clockwise(pts), (ref_lat, ref_lon)
+
+
+def check_exclusion(index, points, ref):
+    """Check one no-go zone and return it as a counter-clockwise ring of (x, y) metres around `ref` (lat, lon).
+
+    Raises FieldError, naming the zone, if its points are out of range, it is a line or a speck, it crosses itself,
+    or it is much bigger than the field limit allows."""
+    name = f"Exclusion {index}"
+    if len(points) < 3:
+        raise FieldError(f"{name} needs at least 3 points, got {len(points)}.")
+    for k, (lat, lon) in enumerate(points, start=1):
+        _check_corner(f"{name} point {k}", lat, lon)
+    ring = [to_meters(lat, lon, ref[0], ref[1]) for lat, lon in points]
+    xs, ys = [p[0] for p in ring], [p[1] for p in ring]
+    if max(max(xs) - min(xs), max(ys) - min(ys)) > MAX_EXTENT_M:
+        raise FieldError(f"{name} spans more than {MAX_EXTENT_M:.0f} m. Check its coordinates for a mistyped digit.")
+    n = len(ring)
+    for i in range(n):
+        j = (i + 1) % n
+        if math.hypot(ring[i][0] - ring[j][0], ring[i][1] - ring[j][1]) < MIN_CORNER_GAP_M:
+            raise FieldError(f"{name} points {i + 1} and {j + 1} are the same point (less than {MIN_CORNER_GAP_M} m apart).")
+    if edges_cross(ring):
+        raise FieldError(f"{name} crosses itself. List its points in order around the zone.")
+    area = _polygon_area(ring)
+    if area < MIN_AREA_M2:
+        raise FieldError(f"{name} encloses only {area:.2f} m2; its points are almost in a line.")
+    if not is_simple(ring):
+        raise FieldError(f"{name} crosses itself. List its points in order around the zone.")
+    return counter_clockwise(ring)

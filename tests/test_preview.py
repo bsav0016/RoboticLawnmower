@@ -189,13 +189,13 @@ class PreviewCommandTests(unittest.TestCase):
 
     def test_an_unplannable_field_stops_with_a_message_and_writes_nothing(self):
         with tempfile.TemporaryDirectory() as folder:
-            star = [(20 * math.cos(math.radians(90 + 36 * k)) * (1 if k % 2 == 0 else 0.4),
-                     20 * math.sin(math.radians(90 + 36 * k)) * (1 if k % 2 == 0 else 0.4)) for k in range(10)]
-            field_path = self.write_field(folder, star)
+            bow_tie = [(0, 0), (30, 0), (0, 20), (30, 20), (15, 30)]  # the edges cross
+            field_path = self.write_field(folder, bow_tie)
             out = os.path.join(folder, "previews")
             with self.assertRaises(SystemExit) as raised:
                 preview_plan.main(["--field", field_path, "--out", out])
             self.assertIn("Cannot plan this field", str(raised.exception))
+            self.assertIn("crosses itself", str(raised.exception))
             self.assertFalse(os.path.exists(out))
 
     def test_a_missing_field_file_stops_with_a_message(self):

@@ -166,19 +166,20 @@ class ShapeTests(unittest.TestCase):
         first_pass = waypoints[1][0] - waypoints[0][0], waypoints[1][1] - waypoints[0][1]
         self.assertAlmostEqual(first_pass[1], 0.0, places=2)  # 30 m bottom edge is along x
 
-    def test_a_field_that_is_cut_into_pieces_in_every_direction_is_refused(self):
-        with self.assertRaises(FieldError) as raised:
-            plan_coverage(gps(STAR), 1.0)
-        self.assertIn("more than one piece", str(raised.exception))
+    def test_a_star_is_planned_in_pieces_and_stays_inside(self):
+        waypoints = metres(plan_coverage(gps(STAR), 1.0))
+        self.assertGreater(len(waypoints), 20)
+        for point in path_samples(waypoints):
+            self.assertTrue(inside_or_on(point, STAR, tolerance=0.03), f"left the field at {point}")
 
     def test_a_u_shape_is_planned_by_sweeping_across_its_arms(self):
         waypoints = self.check_stays_inside(U_SHAPE)
         self.assertGreater(len(waypoints), 10)
 
-    def test_a_heading_that_cuts_the_field_in_two_is_refused_with_advice(self):
-        with self.assertRaises(FieldError) as raised:
-            plan_coverage(gps(U_SHAPE), 1.0, heading_deg=90)  # rows along x cross both arms of the U
-        self.assertIn("heading_deg", str(raised.exception))
+    def test_a_heading_that_cuts_the_field_in_two_goes_around_the_notch(self):
+        waypoints = metres(plan_coverage(gps(U_SHAPE), 1.0, heading_deg=90))  # rows along x cross both arms of the U
+        for point in path_samples(waypoints):
+            self.assertTrue(inside_or_on(point, U_SHAPE, tolerance=0.03), f"left the field at {point}")
 
     def test_a_boundary_that_crosses_itself_is_refused(self):
         with self.assertRaises(FieldError) as raised:

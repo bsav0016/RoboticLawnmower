@@ -1,12 +1,12 @@
 """Draw a mowing plan on a laptop before the rover moves: GeoJSON for a map tool, and a stand-alone SVG.
 
 Pure Python, standard library only, no hardware. Both outputs show the field boundary, the boundary moved inwards by
-`inset_m` (when there is one), the path through the waypoints, the start and the end.
+`inset_m` (when there is one), the no-go zones (and their margin), the path through the waypoints, the start and the end.
 """
 import math
 from xml.sax.saxutils import escape
 
-from lawnmower.coverage import prepare_ring
+from lawnmower.coverage import prepare_field
 from lawnmower.geometry import distance_meters, to_gps, to_meters
 from lawnmower.polygon import signed_area
 
@@ -42,7 +42,8 @@ def _lonlat_ring(points_m, ref):
 
 def plan_geojson(field, waypoints):
     """The plan as a GeoJSON FeatureCollection (a dict): boundary, inset boundary, path, start and end."""
-    outline, driven, ref = prepare_ring(field.boundary, field.pass_spacing_m, field.inset_m)
+    prepared = prepare_field(field.boundary, field.pass_spacing_m, field.inset_m, field.exclusions)
+    outline, driven, ref = prepared.outline, prepared.driven, prepared.ref
     features = [{
         "type": "Feature",
         "properties": {"role": "boundary", **_summary(field, waypoints, outline)},
@@ -54,6 +55,18 @@ def plan_geojson(field, waypoints):
             "properties": {"role": "inset-boundary", "inset_m": field.inset_m},
             "geometry": {"type": "Polygon", "coordinates": [_lonlat_ring(driven, ref)]},
         })
+    for index, (zone, keepout) in enumerate(zip(prepared.exclusions, prepared.keepouts), start=1):
+        features.append({
+            "type": "Feature",
+            "properties": {"role": "exclusion", "index": index},
+            "geometry": {"type": "Polygon", "coordinates": [_lonlat_ring(zone, ref)]},
+        })
+        if field.inset_m > 0:
+            features.append({
+                "type": "Feature",
+                "properties": {"role": "keepout", "index": index, "margin_m": field.inset_m},
+                "geometry": {"type": "Polygon", "coordinates": [_lonlat_ring(keepout, ref)]},
+            })
     features.append({
         "type": "Feature",
         "properties": {"role": "path"},
@@ -76,7 +89,8 @@ def _nice_length(max_m):
 
 def plan_svg(field, waypoints):
     """The plan as a stand-alone SVG document (a string), north up, with a scale bar."""
-    outline, driven, ref = prepare_ring(field.boundary, field.pass_spacing_m, field.inset_m)
+    prepared = prepare_field(field.boundary, field.pass_spacing_m, field.inset_m, field.exclusions)
+    outline, driven, ref = prepared.outline, prepared.driven, prepared.ref
     path = [to_meters(lat, lon, ref[0], ref[1]) for lat, lon in waypoints]
 
     xs = [p[0] for p in outline + path]
@@ -108,6 +122,12 @@ def plan_svg(field, waypoints):
     if field.inset_m > 0:
         parts.append(f'<polygon id="inset-boundary" points="{points_attr(driven)}" fill="none" stroke="#2f6b2f" '
                      f'stroke-width="1" stroke-dasharray="5 4"/>')
+    for index, (zone, keepout) in enumerate(zip(prepared.exclusions, prepared.keepouts), start=1):
+        if field.inset_m > 0:
+            parts.append(f'<polygon id="keepout-{index}" points="{points_attr(keepout)}" fill="none" stroke="#b5382c" '
+                         f'stroke-width="1" stroke-dasharray="5 4"/>')
+        parts.append(f'<polygon id="exclusion-{index}" points="{points_attr(zone)}" fill="#f3c9c4" stroke="#b5382c" '
+                     f'stroke-width="2"/>')
     parts.append(f'<polyline id="path" points="{points_attr(path)}" fill="none" stroke="#1f5fbf" stroke-width="1.5" '
                  f'stroke-linejoin="round"/>')
     if len(path) <= MAX_DOTS:
