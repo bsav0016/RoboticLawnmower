@@ -4,6 +4,7 @@ import math
 # Order does not matter; the script will sort them automatically.
 # The field comes from the local field.json or .env file (see field.example.json and .env.example) when run standalone.
 from field_config import load_field
+from lawnmower.coverage import plan_coverage
 from lawnmower.field import DEFAULT_SPACING_M, FieldError, check_corners
 from lawnmower.geometry import to_gps, to_meters  # noqa: F401
 
@@ -133,6 +134,17 @@ def create_waypoint_list(corner_a, corner_b, corner_c, corner_d, spacing_m=1.0):
     return generate_lawnmower(ordered, spacing_m)
 
 
+def plan_field(field):
+    """Waypoints for a Field (see lawnmower/field.py).
+
+    A plain four-sided field (no inset, no chosen heading) goes through the four-corner planner above, which is the
+    one that has driven the rover. Anything else (more or fewer sides, an inset, a chosen heading) goes through
+    lawnmower.coverage, which handles any polygon whose passes each cross it once."""
+    if len(field.boundary) == 4 and field.inset_m == 0 and field.heading_deg is None:
+        return create_waypoint_list(*field.boundary, spacing_m=field.pass_spacing_m)
+    return plan_coverage(field.boundary, field.pass_spacing_m, field.inset_m, field.heading_deg)
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -140,7 +152,7 @@ def create_waypoint_list(corner_a, corner_b, corner_c, corner_d, spacing_m=1.0):
 if __name__ == "__main__":
     try:
         field = load_field()
-        waypoints = create_waypoint_list(*field.corners, spacing_m=field.pass_spacing_m)
+        waypoints = plan_field(field)
     except FieldError as error:
         raise SystemExit(f"Cannot plan this field: {error}")
 

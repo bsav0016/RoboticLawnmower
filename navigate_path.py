@@ -5,7 +5,7 @@ import time
 import RPi.GPIO as GPIO
 from mpu9250_jmdev.registers import *
 from mpu9250_jmdev.mpu_9250 import MPU9250
-from create_waypoint_list import create_waypoint_list
+from create_waypoint_list import plan_field
 from field_config import load_field
 from lawnmower.geometry import calculate_bearing, distance_meters, heading_error, project_onto_row
 from lawnmower.kalman import PositionFilter
@@ -146,7 +146,7 @@ kf = PositionFilter()
 
 
 # --- Generate waypoint path ---
-WAYPOINTS = create_waypoint_list(*FIELD.corners, spacing_m=FIELD.pass_spacing_m)
+WAYPOINTS = plan_field(FIELD)
 waypoint_index = 0
 TARGET_LAT, TARGET_LON = WAYPOINTS[waypoint_index]
 prev_waypoint = None   # Tracks row start for path projection; set when a waypoint is reached

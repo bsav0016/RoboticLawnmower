@@ -7,6 +7,7 @@ import math
 from dataclasses import dataclass
 
 from lawnmower.geometry import to_meters
+from lawnmower.polygon import counter_clockwise, is_simple, signed_area
 
 # Meters between parallel passes when the field does not say.
 DEFAULT_SPACING_M = 1.0
@@ -17,6 +18,8 @@ MAX_EXTENT_M = 500.0
 MIN_CORNER_GAP_M = 0.5
 # Below this area the "field" is a line or a typo, not something to mow.
 MIN_AREA_M2 = 1.0
+# How far the boundary may be moved inwards.
+MAX_INSET_M = 20.0
 # Closer passes than this make no sense against consumer GPS error, and a zero spacing would never finish.
 MIN_SPACING_M = 0.1
 # A plan with more waypoints than this is almost certainly a mistake (a 500 m square at 1 m spacing is about 1,000).
@@ -29,9 +32,12 @@ class FieldError(ValueError):
 
 @dataclass(frozen=True)
 class Field:
-    """What to mow: the boundary as (lat, lon) points and the spacing between passes."""
+    """What to mow: the boundary as (lat, lon) points, the spacing between passes, how far to keep the passes inside
+    the boundary (0 puts the end of each pass on it), and optionally the compass heading of the passes."""
     boundary: tuple
     pass_spacing_m: float = DEFAULT_SPACING_M
+    inset_m: float = 0.0
+    heading_deg: float = None
 
     @property
     def corners(self):
@@ -43,13 +49,15 @@ class Field:
         return list(self.boundary)
 
 
-_SETTINGS = ("boundary", "pass_spacing_m")
+_SETTINGS = ("boundary", "pass_spacing_m", "inset_m", "heading_deg")
 
 
 def parse_field(data):
     """Turn the contents of a field.json file (already decoded from JSON) into a Field.
 
-    {"boundary": [[lat, lon], ...], "pass_spacing_m": 1.0}   (pass_spacing_m is optional)
+    {"boundary": [[lat, lon], ...], "pass_spacing_m": 1.0, "inset_m": 0, "heading_deg": 90}
+    Only "boundary" is required. heading_deg is the compass direction the passes run (0 = north, 90 = east); left
+    out, they run along the longest side.
 
     Raises FieldError for anything that is not understood, so a misspelt setting is not silently ignored."""
     if not isinstance(data, dict):
@@ -76,7 +84,17 @@ def parse_field(data):
     spacing = data.get("pass_spacing_m", DEFAULT_SPACING_M)
     if isinstance(spacing, bool) or not isinstance(spacing, (int, float)):
         raise FieldError(f'"pass_spacing_m" must be a number, not {spacing!r}.')
-    return Field(boundary=tuple(boundary), pass_spacing_m=float(spacing))
+
+    inset = data.get("inset_m", 0.0)
+    if isinstance(inset, bool) or not isinstance(inset, (int, float)) or not 0 <= inset <= MAX_INSET_M:
+        raise FieldError(f'"inset_m" must be a number from 0 to {MAX_INSET_M:g}, not {inset!r}.')
+
+    heading = data.get("heading_deg")
+    if heading is not None:
+        if isinstance(heading, bool) or not isinstance(heading, (int, float)) or not math.isfinite(heading):
+            raise FieldError(f'"heading_deg" must be a number, not {heading!r}.')
+        heading = float(heading) % 180  # a pass can be driven either way, so 90 and 270 are the same line
+    return Field(boundary=tuple(boundary), pass_spacing_m=float(spacing), inset_m=float(inset), heading_deg=heading)
 
 
 def _check_corner(name, lat, lon):
@@ -89,11 +107,8 @@ def _check_corner(name, lat, lon):
 
 
 def _polygon_area(points):
-    """Absolute area of a simple polygon given as ordered (x, y) points (shoelace formula)."""
-    total = 0.0
-    for (x1, y1), (x2, y2) in zip(points, points[1:] + points[:1]):
-        total += x1 * y2 - x2 * y1
-    return abs(total) / 2
+    """Absolute area of a simple polygon given as ordered (x, y) points."""
+    return abs(signed_area(points))
 
 
 def check_corners(corners, spacing_m):
@@ -146,3 +161,41 @@ def check_corners(corners, spacing_m):
             "Check the corners and the pass spacing."
         )
     return waypoints
+
+
+def check_boundary(boundary, spacing_m):
+    """Raise FieldError if a boundary of any number of (lat, lon) points cannot make a sensible plan.
+
+    The points are an ordered ring. (The four-sided planner sorts its corners itself; this one does not.)
+    Returns the boundary as counter-clockwise (x, y) metre points around a local reference, plus that reference."""
+    if len(boundary) < 3:
+        raise FieldError(f"A field needs at least 3 boundary points, got {len(boundary)}.")
+    if not (math.isfinite(spacing_m) and spacing_m >= MIN_SPACING_M):
+        raise FieldError(f"Pass spacing is {spacing_m} m; it must be at least {MIN_SPACING_M} m.")
+    for index, (lat, lon) in enumerate(boundary, start=1):
+        _check_corner(f"Boundary point {index}", lat, lon)
+
+    ref_lat = sum(p[0] for p in boundary) / len(boundary)
+    ref_lon = sum(p[1] for p in boundary) / len(boundary)
+    pts = [to_meters(lat, lon, ref_lat, ref_lon) for lat, lon in boundary]
+
+    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+    extent = max(max(xs) - min(xs), max(ys) - min(ys))
+    if extent > MAX_EXTENT_M:
+        raise FieldError(
+            f"The boundary spans {extent / 1000:.2f} km, more than the {MAX_EXTENT_M:.0f} m limit. "
+            "Check the coordinates for a mistyped digit."
+        )
+    n = len(pts)
+    for i in range(n):
+        j = (i + 1) % n
+        if math.hypot(pts[i][0] - pts[j][0], pts[i][1] - pts[j][1]) < MIN_CORNER_GAP_M:
+            raise FieldError(
+                f"Boundary points {i + 1} and {j + 1} are the same point (less than {MIN_CORNER_GAP_M} m apart)."
+            )
+    area = _polygon_area(pts)
+    if area < MIN_AREA_M2:
+        raise FieldError(f"The boundary encloses only {area:.2f} m2; the points are almost in a line.")
+    if not is_simple(pts):
+        raise FieldError("The boundary crosses itself. List the points in order around the field.")
+    return counter_clockwise(pts), (ref_lat, ref_lon)
