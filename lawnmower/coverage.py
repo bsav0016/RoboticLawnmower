@@ -106,6 +106,25 @@ def _drive(rows):
     return waypoints
 
 
+def prepare_ring(boundary, spacing_m, inset_m=0.0):
+    """Check a boundary and project it to local metres.
+
+    Returns (outline, driven, ref): the field outline and the ring the passes are cut from (the outline moved
+    inwards by inset_m; the same ring when inset_m is 0), both counter-clockwise (x, y) metres, and the (lat, lon)
+    origin of that frame. Raises FieldError like plan_coverage."""
+    boundary = [tuple(p) for p in boundary]
+    if len(boundary) == 4:
+        boundary = _order_quad(boundary)
+    outline, ref = check_boundary(boundary, spacing_m)
+    driven = outline
+    if inset_m > 0:
+        try:
+            driven = inset(outline, inset_m)
+        except PolygonError as error:
+            raise FieldError(f"Cannot keep {inset_m:g} m inside the boundary: {error}.") from None
+    return outline, driven, ref
+
+
 def plan_coverage(boundary, spacing_m, inset_m=0.0, heading_deg=None):
     """Waypoints (lat, lon) covering a polygon field.
 
@@ -115,16 +134,7 @@ def plan_coverage(boundary, spacing_m, inset_m=0.0, heading_deg=None):
     the direction of the longest side.
 
     Raises FieldError when the field cannot be planned, with a message that says what to change."""
-    boundary = [tuple(p) for p in boundary]
-    if len(boundary) == 4:
-        boundary = _order_quad(boundary)
-    ring, (ref_lat, ref_lon) = check_boundary(boundary, spacing_m)
-
-    if inset_m > 0:
-        try:
-            ring = inset(ring, inset_m)
-        except PolygonError as error:
-            raise FieldError(f"Cannot keep {inset_m:g} m inside the boundary: {error}.") from None
+    _, ring, (ref_lat, ref_lon) = prepare_ring(boundary, spacing_m, inset_m)
 
     headings = [heading_deg % 180] if heading_deg is not None else _heading_candidates(ring)
     rows = u = None
