@@ -137,12 +137,13 @@ def create_waypoint_list(corner_a, corner_b, corner_c, corner_d, spacing_m=1.0):
 def plan_field(field):
     """Waypoints for a Field (see lawnmower/field.py).
 
-    A plain four-sided field (no inset, no chosen heading) goes through the four-corner planner above, which is the
-    one that has driven the rover. Anything else (more or fewer sides, an inset, a chosen heading) goes through
-    lawnmower.coverage, which handles any polygon whose passes each cross it once."""
-    if len(field.boundary) == 4 and field.inset_m == 0 and field.heading_deg is None:
+    A plain four-sided field (no inset, no chosen heading, no no-go zones) goes through the four-corner planner above,
+    which is the one that has driven the rover. Anything else (more or fewer sides, an inset, a chosen heading,
+    no-go zones) goes through lawnmower.coverage, which handles any polygon field with no-go zones."""
+    plain = field.inset_m == 0 and field.heading_deg is None and not field.exclusions
+    if len(field.boundary) == 4 and plain:
         return create_waypoint_list(*field.boundary, spacing_m=field.pass_spacing_m)
-    return plan_coverage(field.boundary, field.pass_spacing_m, field.inset_m, field.heading_deg)
+    return plan_coverage(field.boundary, field.pass_spacing_m, field.inset_m, field.heading_deg, field.exclusions)
 
 
 # ---------------------------------------------------------------------------

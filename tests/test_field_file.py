@@ -52,10 +52,24 @@ class ParseFieldTests(unittest.TestCase):
             parse_field({"boundary": SQUARE, "pass_spacin_m": 1})
         self.assertIn("pass_spacin_m", str(raised.exception))
 
-    def test_exclusions_are_refused_until_they_are_supported(self):
-        with self.assertRaises(FieldError) as raised:
-            parse_field({"boundary": SQUARE, "exclusions": []})
-        self.assertIn("not supported yet", str(raised.exception))
+    def test_exclusions_are_read_as_rings_of_points(self):
+        zone = [[37.00003, -121.99997], [37.00003, -121.99995], [37.00005, -121.99995]]
+        field = parse_field({"boundary": SQUARE, "exclusions": [zone]})
+        self.assertEqual(field.exclusions, (tuple(tuple(p) for p in zone),))
+        self.assertEqual(parse_field({"boundary": SQUARE}).exclusions, ())
+
+    def test_a_bad_exclusion_names_which_one(self):
+        zone = [[37.00003, -121.99997], [37.00003, -121.99995], [37.00005, -121.99995]]
+        for bad in ("zone", [[1, 2], [3, 4]], [[1, 2], [3, 4], "x"], [[1, 2], [3, 4], [5, 6, 7]]):
+            with self.assertRaises(FieldError) as raised:
+                parse_field({"boundary": SQUARE, "exclusions": [zone, bad]})
+            self.assertIn("Exclusion 2", str(raised.exception))
+
+    def test_exclusions_must_be_a_list_and_not_too_many(self):
+        zone = [[37.00003, -121.99997], [37.00003, -121.99995], [37.00005, -121.99995]]
+        for bad in ("zone", {"a": 1}, [zone] * 51):
+            with self.assertRaises(FieldError):
+                parse_field({"boundary": SQUARE, "exclusions": bad})
 
     def test_boundary_needs_at_least_three_points(self):
         for bad in ([], [[1, 2], [3, 4]], "abc", {"a": 1}):
