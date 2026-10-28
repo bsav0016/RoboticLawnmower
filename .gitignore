@@ -22,6 +22,9 @@ Thumbs.db
 # Local field coordinates
 .env
 field.json
+# Plan previews (contain the field coordinates)
+plan.geojson
+plan.svg
 
 # Local notes
 Claude Context.docx

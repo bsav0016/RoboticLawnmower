@@ -37,7 +37,8 @@ The wiring diagram source is [Wiring Diagram.pptx](Wiring%20Diagram.pptx); the p
 | --- | --- |
 | [navigate_path.py](navigate_path.py) | Full autonomous run: waypoint generation, Kalman filter, path following |
 | [navigate_to_target.py](navigate_to_target.py) | Drive to a single GPS coordinate (earlier milestone) |
-| [create_waypoint_list.py](create_waypoint_list.py) | Generate lawnmower passes from four corners |
+| [create_waypoint_list.py](create_waypoint_list.py) | Generate lawnmower passes from the field and write `waypoints.py` |
+| [preview_plan.py](preview_plan.py) | Draw the plan on a computer (SVG and GeoJSON) before the robot moves; no Pi needed |
 | [control_motors.py](control_motors.py) | Drive with a Bluetooth gamepad |
 | [basic_motor_control.py](basic_motor_control.py) | Motor driver smoke test |
 | [calibrate_magnetometer.py](calibrate_magnetometer.py) | Collect samples for hard-iron offsets (data in the `*calibration.txt` files and [Magnetometer Offsets.xlsx](Magnetometer%20Offsets.xlsx)) |
@@ -63,13 +64,24 @@ The boundary can have any number of points (in order around the field; four poin
 
 The run stops after `RUNTIME_LIMIT_S` seconds as a safety cutoff.
 
+### Preview a plan before the rover moves
+
+```bash
+python preview_plan.py                       # reads field.json (or .env), writes plan.svg and plan.geojson here
+python preview_plan.py --field other.json --out previews
+```
+
+`plan.svg` opens in any browser: the field boundary, the boundary moved inwards by `inset_m` (dashed), the path through every waypoint, the start (green) and end (red), a north arrow and a scale bar, with the waypoint count, path length and field area underneath. `plan.geojson` has the same layers in longitude/latitude order for geojson.io, QGIS or any map tool. Both are gitignored because the GeoJSON holds your field's coordinates. This needs no Pi and no extra packages.
+
+![Preview of an L-shaped field with a 1.5 m inset: the dashed inset boundary, the passes stepping around the inside corner, the start and end markers, a north arrow and a scale bar](docs/images/plan-preview.png)
+
 ### Tests
 
 ```bash
 python -m unittest discover -s tests
 ```
 
-The tests need no Pi, only `numpy`. They cover the waypoint planner (coordinate conversion, corner ordering, pass count, spacing, coverage and direction for wide and tall fields), the `field.json` and `.env` loading (including a golden check that the example field plans the same waypoints as before), and the `lawnmower/` navigation maths (bearing wraparound, heading error at ±180°, distance, row projection and clamping, compass heading, steering decision), and the Kalman filter (convergence on a fixed target, noise smoothing, dead-reckoning kinematics, uncertainty growth and shrinkage). The sensor reading and motor code still only run on the robot and are not tested; GitHub Actions just checks that every script still compiles, then runs these tests. Dependabot opens weekly pull requests to update the pinned GitHub Actions versions.
+The tests need no Pi, only `numpy`. They cover the waypoint planner (coordinate conversion, corner ordering, pass count, spacing, coverage and direction for wide and tall fields), the `field.json` and `.env` loading (including a golden check that the example field plans the same waypoints as before), the polygon planner and the preview output, and the `lawnmower/` navigation maths (bearing wraparound, heading error at ±180°, distance, row projection and clamping, compass heading, steering decision), and the Kalman filter (convergence on a fixed target, noise smoothing, dead-reckoning kinematics, uncertainty growth and shrinkage). The sensor reading and motor code still only run on the robot and are not tested; GitHub Actions just checks that every script still compiles, then runs these tests. Dependabot opens weekly pull requests to update the pinned GitHub Actions versions.
 
 ## Milestones
 
