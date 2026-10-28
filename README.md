@@ -11,7 +11,7 @@ A Raspberry Pi 4 rover that drives itself over a GPS-bounded rectangle in a bous
 
 ## How it works
 
-1. **Coverage planning** – [create_waypoint_list.py](create_waypoint_list.py) takes four corner coordinates, converts them to a local meter grid (flat-earth approximation, fine under ~1 km), and generates evenly spaced parallel passes. The corners are checked first ([lawnmower/field.py](lawnmower/field.py)): a field wider than 500 m, corners on top of each other, a line instead of an area or a plan of more than 5,000 waypoints stops with a message instead of a plan. The result is written to [waypoints.py](waypoints.py).
+1. **Coverage planning** – [create_waypoint_list.py](create_waypoint_list.py) takes the field (four corners) from `field.json` or `.env`, converts them to a local meter grid (flat-earth approximation, fine under ~1 km), and generates evenly spaced parallel passes. The corners are checked first ([lawnmower/field.py](lawnmower/field.py)): a field wider than 500 m, corners on top of each other, a line instead of an area or a plan of more than 5,000 waypoints stops with a message instead of a plan. The result is written to [waypoints.py](waypoints.py).
 2. **Sensing** – a NEO-6M GPS (UART, NMEA via `pynmea2`) gives position; an MPU-9250 gives magnetometer heading and acceleration over I²C.
 3. **State estimation** – [navigate_path.py](navigate_path.py) runs a 4-state Kalman filter (`x, y, vx, vy`). The accelerometer, rotated into the East/North frame using the compass heading, drives the predict step, and GPS fixes drive the update step. GPS alone was too noisy to steer on, and the robot has no wheel encoders, so the filter bridges the gaps.
 4. **Path following** – the position estimate is projected onto the current row so sideways GPS error does not cause needless steering. Heading error against the target bearing selects straight driving or a differential-speed turn.
@@ -53,11 +53,11 @@ On a Raspberry Pi with I²C and the serial port enabled:
 
 ```bash
 pip install pyserial pynmea2 numpy RPi.GPIO mpu9250-jmdev
-cp .env.example .env   # then set CORNER_A..CORNER_D to your field's corners ("lat,lon")
+cp field.example.json field.json   # then put your field's corners in "boundary" as [lat, lon]
 python navigate_path.py
 ```
 
-Field coordinates live in `.env`, which is gitignored.
+The field lives in `field.json`, which is gitignored (see [field.example.json](field.example.json): a `boundary` of four `[lat, lon]` points and an optional `pass_spacing_m`, default 1). Unknown settings are reported rather than ignored. `FIELD_FILE=other.json` picks a different file. Without a `field.json` the four corners are read from `.env` as before (`cp .env.example .env`, then set `CORNER_A`..`CORNER_D` as `lat,lon`); `field.json` wins when both exist. Four-sided fields only for now.
 
 The run stops after `RUNTIME_LIMIT_S` seconds as a safety cutoff.
 
@@ -67,7 +67,7 @@ The run stops after `RUNTIME_LIMIT_S` seconds as a safety cutoff.
 python -m unittest discover -s tests
 ```
 
-The tests need no Pi, only `numpy`. They cover the waypoint planner (coordinate conversion, corner ordering, pass count, spacing, coverage and direction for wide and tall fields), the `.env` corner loading, and the `lawnmower/` navigation maths (bearing wraparound, heading error at ±180°, distance, row projection and clamping, compass heading, steering decision), and the Kalman filter (convergence on a fixed target, noise smoothing, dead-reckoning kinematics, uncertainty growth and shrinkage). The sensor reading and motor code still only run on the robot and are not tested; GitHub Actions just checks that every script still compiles, then runs these tests. Dependabot opens weekly pull requests to update the pinned GitHub Actions versions.
+The tests need no Pi, only `numpy`. They cover the waypoint planner (coordinate conversion, corner ordering, pass count, spacing, coverage and direction for wide and tall fields), the `field.json` and `.env` loading (including a golden check that the example field plans the same waypoints as before), and the `lawnmower/` navigation maths (bearing wraparound, heading error at ±180°, distance, row projection and clamping, compass heading, steering decision), and the Kalman filter (convergence on a fixed target, noise smoothing, dead-reckoning kinematics, uncertainty growth and shrinkage). The sensor reading and motor code still only run on the robot and are not tested; GitHub Actions just checks that every script still compiles, then runs these tests. Dependabot opens weekly pull requests to update the pinned GitHub Actions versions.
 
 ## Milestones
 

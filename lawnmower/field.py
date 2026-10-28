@@ -4,8 +4,12 @@ A mistyped digit in a corner coordinate used to produce a plan with about 175,00
 87 km wide. These limits turn that kind of mistake into a readable message instead.
 """
 import math
+from dataclasses import dataclass
 
 from lawnmower.geometry import to_meters
+
+# Meters between parallel passes when the field does not say.
+DEFAULT_SPACING_M = 1.0
 
 # The flat-earth projection in geometry.py is only claimed for small areas (under about 1 km). A lawn is far smaller.
 MAX_EXTENT_M = 500.0
@@ -21,6 +25,58 @@ MAX_WAYPOINTS = 5000
 
 class FieldError(ValueError):
     """The field definition is not usable. The message says what to fix."""
+
+
+@dataclass(frozen=True)
+class Field:
+    """What to mow: the boundary as (lat, lon) points and the spacing between passes."""
+    boundary: tuple
+    pass_spacing_m: float = DEFAULT_SPACING_M
+
+    @property
+    def corners(self):
+        """The four corners, for the planner (which only handles four-sided fields for now)."""
+        if len(self.boundary) != 4:
+            raise FieldError(
+                f"The boundary has {len(self.boundary)} points; only four-sided fields can be planned right now."
+            )
+        return list(self.boundary)
+
+
+_SETTINGS = ("boundary", "pass_spacing_m")
+
+
+def parse_field(data):
+    """Turn the contents of a field.json file (already decoded from JSON) into a Field.
+
+    {"boundary": [[lat, lon], ...], "pass_spacing_m": 1.0}   (pass_spacing_m is optional)
+
+    Raises FieldError for anything that is not understood, so a misspelt setting is not silently ignored."""
+    if not isinstance(data, dict):
+        raise FieldError('The field file must be an object such as {"boundary": [[lat, lon], ...]}.')
+    for key in data:
+        if key == "exclusions":
+            raise FieldError('"exclusions" (no-go zones) are not supported yet.')
+        if key not in _SETTINGS:
+            raise FieldError(f'Unknown setting "{key}". The settings are: {", ".join(_SETTINGS)}.')
+    if "boundary" not in data:
+        raise FieldError('The field file needs a "boundary": a list of [lat, lon] points.')
+
+    raw = data["boundary"]
+    if not isinstance(raw, list) or len(raw) < 3:
+        raise FieldError('"boundary" must be a list of at least 3 [lat, lon] points.')
+    boundary = []
+    for index, point in enumerate(raw, start=1):
+        ok = (isinstance(point, list) and len(point) == 2
+              and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in point))
+        if not ok:
+            raise FieldError(f'Boundary point {index} is {point!r}; it must be two numbers, [lat, lon].')
+        boundary.append((float(point[0]), float(point[1])))
+
+    spacing = data.get("pass_spacing_m", DEFAULT_SPACING_M)
+    if isinstance(spacing, bool) or not isinstance(spacing, (int, float)):
+        raise FieldError(f'"pass_spacing_m" must be a number, not {spacing!r}.')
+    return Field(boundary=tuple(boundary), pass_spacing_m=float(spacing))
 
 
 def _check_corner(name, lat, lon):
