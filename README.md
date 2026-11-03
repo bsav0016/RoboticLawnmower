@@ -75,6 +75,17 @@ python replay_run.py runs/run-20261104-101500.jsonl
 
 It prints how long the run was, how many loops had no GPS fix, how uncertain the position got and how steady the loop rate was, then feeds the same readings back through [lawnmower/mission.py](lawnmower/mission.py) and lists any loop where today's code decides differently from what the rover did. If the log cannot be opened (full or read-only card) the run carries on without it.
 
+### Simulated rover
+
+[lawnmower/sim.py](lawnmower/sim.py) is a differential-drive rover and its sensors, so the mission code can be run against a field without the Pi. The motor commands become wheel speeds (`RoverParams`: top speed, track width, how fast a wheel comes up to speed); the sensors give what `Mission.step()` takes: a GPS fix once a second with fast noise plus a slowly wandering error, a compass heading with noise and an optional constant error, and a world-frame accelerometer with noise and a constant offset (`NoiseParams`). One seed makes a run repeatable.
+
+```python
+from lawnmower import sim
+result = sim.simulate(waypoints, seed=1)   # result.finished, .waypoints_reached, .elapsed_s, .track
+```
+
+Every default is a guess until it is measured on the rover (the turning radius in [docs/FIELD_TRIALS.md](docs/FIELD_TRIALS.md) step 5, GPS and compass noise from a recorded run), so for now a simulation compares settings against each other; it does not promise what the rover will do. The sweep tool that uses it comes next.
+
 ### Preview a plan before the rover moves
 
 ```bash
@@ -94,7 +105,7 @@ Before putting any of this on the rover, follow [docs/FIELD_TRIALS.md](docs/FIEL
 python -m unittest discover -s tests
 ```
 
-The tests need no Pi, only `numpy`. They cover the waypoint planner (coordinate conversion, corner ordering, pass count, spacing, coverage and direction for wide and tall fields), the `field.json` and `.env` loading (including a golden check that the example field plans the same waypoints as before), the polygon planner and the preview output, and the `lawnmower/` navigation maths (bearing wraparound, heading error at ±180°, distance, row projection and clamping, compass heading, steering decision), the mission logic with scripted sensor input (waiting for a fix, steering, waypoint advance, row projection, finishing, time limit), the run log (a recorded run replays to the same decisions; a changed setting shows where it differs), and the Kalman filter (convergence on a fixed target, noise smoothing, dead-reckoning kinematics, uncertainty growth and shrinkage). The sensor reading and motor code still only run on the robot and are not tested; GitHub Actions just checks that every script still compiles, then runs these tests. Dependabot opens weekly pull requests to update the pinned GitHub Actions versions.
+The tests need no Pi, only `numpy`. They cover the waypoint planner (coordinate conversion, corner ordering, pass count, spacing, coverage and direction for wide and tall fields), the `field.json` and `.env` loading (including a golden check that the example field plans the same waypoints as before), the polygon planner and the preview output, and the `lawnmower/` navigation maths (bearing wraparound, heading error at ±180°, distance, row projection and clamping, compass heading, steering decision), the mission logic with scripted sensor input (waiting for a fix, steering, waypoint advance, row projection, finishing, time limit), the run log (a recorded run replays to the same decisions; a changed setting shows where it differs), the simulator (straight lines, the turning radius of a fixed wheel-speed pair, spinning on the spot, the statistics of each sensor's noise, repeatability from a seed, and the mission driving a leg to its end), and the Kalman filter (convergence on a fixed target, noise smoothing, dead-reckoning kinematics, uncertainty growth and shrinkage). The sensor reading and motor code still only run on the robot and are not tested; GitHub Actions just checks that every script still compiles, then runs these tests. Dependabot opens weekly pull requests to update the pinned GitHub Actions versions.
 
 ## Milestones
 
