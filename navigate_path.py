@@ -8,6 +8,7 @@ from mpu9250_jmdev.mpu_9250 import MPU9250
 from create_waypoint_list import plan_field
 from field_config import load_field
 from lawnmower.mission import Mission, MissionConfig, WAITING_FOR_FIX
+from lawnmower.runlog import RunLog
 from lawnmower.steering import heading_from_magnetometer
 
 # --- Lawnmower field corners (lat, lon) ---
@@ -148,6 +149,14 @@ mission = Mission(WAYPOINTS, CONFIG, now=start_time)   # holds the position filt
 for line in mission.start_messages():
     print(line)
 
+# --- Run log: every loop's sensor readings and decision, for replay_run.py ---
+try:
+    run_log = RunLog(time.strftime("runs/run-%Y%m%d-%H%M%S.jsonl"), mission)
+    print(f"Logging this run to {run_log.path}")
+except OSError as error:
+    run_log = None   # a full or read-only card must not stop the run
+    print(f"Not logging this run: {error}")
+
 try:
     while True:
         now = time.time()
@@ -159,6 +168,12 @@ try:
 
         # --- Decide: Kalman filter, waypoint advance, path projection and steering ---
         command = mission.step(now, heading, ax_east, ay_north, gps)
+        if run_log:
+            try:
+                run_log.record(mission, now, heading, ax_east, ay_north, gps, command)
+            except OSError as error:   # the card filled up: carry on without the log
+                print(f"Stopped logging: {error}")
+                run_log = None
         for line in command.messages:
             print(line)
         if command.done:
@@ -172,6 +187,8 @@ try:
 except KeyboardInterrupt:
     print("\nInterrupted.")
 finally:
+    if run_log:
+        run_log.close()
     stop_motors()
     pwmA.stop()
     pwmB.stop()

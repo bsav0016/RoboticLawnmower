@@ -38,6 +38,7 @@ The wiring diagram source is [Wiring Diagram.pptx](Wiring%20Diagram.pptx); the p
 | [navigate_path.py](navigate_path.py) | Full autonomous run: waypoint generation, Kalman filter, path following |
 | [navigate_to_target.py](navigate_to_target.py) | Drive to a single GPS coordinate (earlier milestone) |
 | [create_waypoint_list.py](create_waypoint_list.py) | Generate lawnmower passes from the field and write `waypoints.py` |
+| [replay_run.py](replay_run.py) | Summarize a run log copied off the Pi and replay it through the mission code; no Pi needed |
 | [preview_plan.py](preview_plan.py) | Draw the plan on a computer (SVG and GeoJSON) before the robot moves; no Pi needed |
 | [control_motors.py](control_motors.py) | Drive with a Bluetooth gamepad |
 | [basic_motor_control.py](basic_motor_control.py) | Motor driver smoke test |
@@ -64,6 +65,16 @@ The boundary can have any number of points (in order around the field; four poin
 
 The run stops after `runtime_limit_s` (180) seconds as a safety cutoff.
 
+### Record and replay a run
+
+Every run of `navigate_path.py` writes `runs/run-<date>-<time>.jsonl` (gitignored): a header with the plan and settings, then one line per loop with the compass heading, accelerometer, GPS fix (or none), the filter's estimate and uncertainty, and the command sent to the motors. Copy it off the Pi and run:
+
+```bash
+python replay_run.py runs/run-20261104-101500.jsonl
+```
+
+It prints how long the run was, how many loops had no GPS fix, how uncertain the position got and how steady the loop rate was, then feeds the same readings back through [lawnmower/mission.py](lawnmower/mission.py) and lists any loop where today's code decides differently from what the rover did. If the log cannot be opened (full or read-only card) the run carries on without it.
+
 ### Preview a plan before the rover moves
 
 ```bash
@@ -83,7 +94,7 @@ Before putting any of this on the rover, follow [docs/FIELD_TRIALS.md](docs/FIEL
 python -m unittest discover -s tests
 ```
 
-The tests need no Pi, only `numpy`. They cover the waypoint planner (coordinate conversion, corner ordering, pass count, spacing, coverage and direction for wide and tall fields), the `field.json` and `.env` loading (including a golden check that the example field plans the same waypoints as before), the polygon planner and the preview output, and the `lawnmower/` navigation maths (bearing wraparound, heading error at ±180°, distance, row projection and clamping, compass heading, steering decision), the mission logic with scripted sensor input (waiting for a fix, steering, waypoint advance, row projection, finishing, time limit), and the Kalman filter (convergence on a fixed target, noise smoothing, dead-reckoning kinematics, uncertainty growth and shrinkage). The sensor reading and motor code still only run on the robot and are not tested; GitHub Actions just checks that every script still compiles, then runs these tests. Dependabot opens weekly pull requests to update the pinned GitHub Actions versions.
+The tests need no Pi, only `numpy`. They cover the waypoint planner (coordinate conversion, corner ordering, pass count, spacing, coverage and direction for wide and tall fields), the `field.json` and `.env` loading (including a golden check that the example field plans the same waypoints as before), the polygon planner and the preview output, and the `lawnmower/` navigation maths (bearing wraparound, heading error at ±180°, distance, row projection and clamping, compass heading, steering decision), the mission logic with scripted sensor input (waiting for a fix, steering, waypoint advance, row projection, finishing, time limit), the run log (a recorded run replays to the same decisions; a changed setting shows where it differs), and the Kalman filter (convergence on a fixed target, noise smoothing, dead-reckoning kinematics, uncertainty growth and shrinkage). The sensor reading and motor code still only run on the robot and are not tested; GitHub Actions just checks that every script still compiles, then runs these tests. Dependabot opens weekly pull requests to update the pinned GitHub Actions versions.
 
 ## Milestones
 
