@@ -64,7 +64,8 @@ def field_for(field, scenario):
     return replace(field, inset_m=scenario.inset_m, turn_depth_m=scenario.turn_depth_m)
 
 
-def run_once(field, scenario, seed, rover_params=None, loop_dt=0.1, resolution_m=0.25, keep_track=False):
+def run_once(field, scenario, seed, rover_params=None, loop_dt=0.1, resolution_m=0.25, keep_track=False,
+             failsafes=False):
     """Plan the field with the scenario's settings, drive it in the simulator, and score the driven track."""
     planned = field_for(field, scenario)
     waypoints = plan_field(planned)
@@ -72,8 +73,10 @@ def run_once(field, scenario, seed, rover_params=None, loop_dt=0.1, resolution_m
     allowance = TIME_ALLOWANCE * path_length_m(waypoints) / rover_params.max_speed_mps + 60
     config = MissionConfig(stop_distance_m=scenario.stop_distance_m, runtime_limit_s=allowance,
                            turn_speed=scenario.turn_speed)
+    if not failsafes:   # judge the planner settings and the steering on their own, not what the failsafes cut short
+        config = replace(config, no_fix_timeout_s=None, max_position_std_m=None, max_outside_m=None)
     result = sim.simulate(waypoints, config, rover_params, noise_for(scenario.gps_error_m), seed=seed,
-                          loop_dt=loop_dt)
+                          loop_dt=loop_dt, boundary=field.boundary)
 
     ref = waypoints[0]   # the simulator's origin
     boundary = [to_meters(lat, lon, *ref) for lat, lon in field.boundary]

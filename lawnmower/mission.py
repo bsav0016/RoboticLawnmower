@@ -5,8 +5,9 @@ motors in it. The loop reads the sensors, calls Mission.step() once, and applies
 back, so the same logic can be driven by scripted input in tests (and later by a simulator)."""
 from dataclasses import dataclass, field
 
-from .geometry import calculate_bearing, distance_meters, heading_error, project_onto_row
+from .geometry import calculate_bearing, distance_meters, heading_error, project_onto_row, to_meters
 from .kalman import PositionFilter
+from .polygon import distance_to_boundary, point_in_polygon
 from .steering import steer
 
 WAITING_FOR_FIX = "waiting for fix"
@@ -14,6 +15,11 @@ TIME_LIMIT = "time limit"
 PATH_COMPLETE = "path complete"
 WAYPOINT_REACHED = "waypoint reached"
 STEERING = "steering"
+# Failsafe stops: the rover stops and the run ends.
+NO_FIX = "no gps fix"
+UNCERTAIN = "position uncertain"
+OUT_OF_BOUNDS = "outside the field"
+FAILSAFES = (NO_FIX, UNCERTAIN, OUT_OF_BOUNDS)
 
 
 @dataclass
@@ -23,6 +29,12 @@ class MissionConfig:
     forward_speed: int = 100         # motor speed going straight (0-100)
     turn_speed: int = 80             # motor speed of the inner wheel in a turn
     heading_threshold_deg: float = 10  # heading error allowed before correcting course
+    # Failsafes. Thresholds come from the simulator (docs/SIMULATION.md): with a fix every second the gap
+    # between fixes is 1 s and the filter's uncertainty stays near 3 m; after 5 s without a fix it has grown to
+    # about 10 m, and the estimate is no longer worth steering on. None switches a check off.
+    no_fix_timeout_s: float = 5.0       # stop when no GPS fix for this long (once the first fix has come)
+    max_position_std_m: float = 10.0    # stop when the filter's uncertainty (1 sigma) is above this
+    max_outside_m: float = 5.0          # stop when the estimate is this far outside the boundary (needs one)
 
 
 @dataclass
@@ -40,7 +52,7 @@ class Command:
 
 
 class Mission:
-    def __init__(self, waypoints, config=None, now=0.0, position_filter=None):
+    def __init__(self, waypoints, config=None, now=0.0, position_filter=None, boundary=None):
         if not waypoints:
             raise ValueError("A mission needs at least one waypoint.")
         self.waypoints = list(waypoints)
@@ -50,6 +62,9 @@ class Mission:
         self.prev_waypoint = None   # row start, for path projection; set when a waypoint is reached
         self.start_time = now
         self.last_time = now
+        self.last_fix_time = None
+        self.boundary = list(boundary) if boundary else None   # (lat, lon) points, for the outside check
+        self._boundary_m = None
 
     @property
     def target(self):
@@ -78,9 +93,14 @@ class Mission:
                 self.kf.init(*gps_fix)
             else:
                 self.kf.update_gps(*gps_fix)
+            self.last_fix_time = now
 
         if not self.kf.initialized:
             return Command(WAITING_FOR_FIX, messages=["Waiting for GPS fix..."])
+
+        stop = self._failsafe(now)
+        if stop:
+            return stop
 
         cur_lat, cur_lon = self.kf.position()
         target_lat, target_lon = self.target
@@ -116,3 +136,37 @@ class Mission:
         messages.append(f"Heading: {heading_deg:.1f}° | Target bearing: {bearing:.1f}° | Error: {error:.1f}°")
         left, right = steer(error, cfg.forward_speed, cfg.turn_speed, cfg.heading_threshold_deg)
         return Command(STEERING, left=left, right=right, messages=messages)
+
+    def _failsafe(self, now):
+        """A stop Command if the rover should not carry on, else None. Called once the filter has a position."""
+        cfg = self.config
+        if cfg.no_fix_timeout_s is not None and self.last_fix_time is not None:
+            silent = now - self.last_fix_time
+            if silent > cfg.no_fix_timeout_s:
+                return self._stop(NO_FIX, f"Failsafe: no GPS fix for {silent:.1f} s. Stopping.")
+        if cfg.max_position_std_m is not None:
+            std = self.kf.position_std_m()
+            if std > cfg.max_position_std_m:
+                return self._stop(UNCERTAIN, f"Failsafe: position uncertainty {std:.1f} m is above "
+                                             f"{cfg.max_position_std_m:g} m. Stopping.")
+        if cfg.max_outside_m is not None and self.boundary:
+            outside = self.outside_m()
+            if outside > cfg.max_outside_m:
+                return self._stop(OUT_OF_BOUNDS, f"Failsafe: the position estimate is {outside:.1f} m outside the "
+                                                 f"field (limit {cfg.max_outside_m:g} m). Stopping.")
+        return None
+
+    def outside_m(self):
+        """How far the position estimate is outside the boundary, in meters (0 when inside or without a boundary)."""
+        if not self.boundary or not self.kf.initialized:
+            return 0.0
+        if self._boundary_m is None:
+            self._boundary_m = [to_meters(lat, lon, *self.kf.ref) for lat, lon in self.boundary]
+        point = (float(self.kf.state[0]), float(self.kf.state[1]))
+        if point_in_polygon(point, self._boundary_m):
+            return 0.0
+        return distance_to_boundary(point, self._boundary_m)
+
+    @staticmethod
+    def _stop(reason, message):
+        return Command(reason, left=0, right=0, done=True, messages=[message])

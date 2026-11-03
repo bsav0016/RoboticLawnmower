@@ -111,12 +111,14 @@ class SimResult:
 
 def simulate(waypoints, mission_config=None, rover_params=None, noise=None, seed=0,
              start_offset_m=(0.0, 0.0), start_heading_deg=None,
-             loop_dt=0.1, gps_period_s=1.0, max_time_s=None):
+             loop_dt=0.1, gps_period_s=1.0, max_time_s=None, gps_dropouts=(), boundary=None):
     """Run the mission against the simulated rover until it finishes, times out or hits max_time_s.
 
     The rover starts at the first waypoint plus start_offset_m (east, north), facing start_heading_deg
     (default: toward the first waypoint, or north if it starts on it). A GPS fix arrives every
-    gps_period_s and the loop runs every loop_dt."""
+    gps_period_s and the loop runs every loop_dt. gps_dropouts is a list of (start, end) times in seconds when no
+    fix arrives (the receiver is unplugged or has lost the sky). boundary is the field's (lat, lon) boundary, which
+    the mission needs for its outside-the-field failsafe."""
     config = mission_config or MissionConfig()
     ref = waypoints[0]
     east0, north0 = start_offset_m
@@ -129,7 +131,7 @@ def simulate(waypoints, mission_config=None, rover_params=None, noise=None, seed
     rng = np.random.default_rng(seed)
     sensors = Sensors(rover, ref, noise, rng)
 
-    mission = Mission(waypoints, config, now=0.0)
+    mission = Mission(waypoints, config, now=0.0, boundary=boundary)
     limit = max_time_s if max_time_s is not None else config.runtime_limit_s + 1
     track = [(0.0, rover.east, rover.north, rover.heading_deg)]
     left = right = 0.0
@@ -141,7 +143,7 @@ def simulate(waypoints, mission_config=None, rover_params=None, noise=None, seed
     while t < limit:
         t = round(t + loop_dt, 9)
         fix = None
-        if t >= next_fix_t - 1e-9:
+        if t >= next_fix_t - 1e-9 and not any(a <= t < b for a, b in gps_dropouts):
             fix = sensors.gps(gps_period_s if last_fix_t is None else t - last_fix_t)
             last_fix_t = t
             next_fix_t = t + gps_period_s
