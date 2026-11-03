@@ -20,13 +20,13 @@ surprises you. Keep the robot where you can reach it, and have the battery lead 
 
 ## 3. Measure how the rover turns
 
-The rover never turns on the spot: `steer()` slows the inner wheel (`TURN_SPEED` 80 against `FORWARD_SPEED` 100), so
+The rover never turns on the spot: `steer()` slows the inner wheel (`turn_speed` 80 against `forward_speed` 100), so
 it turns in an arc. The swing-out turns need to be sized to that arc.
 
 1. With a free area, hold the steer command on one side (a short script calling `set_motor_speed(100, 80)`) and mark
    where the rover goes for one full circle.
 2. Measure the circle's diameter. Half of it is the turning radius.
-3. Note it down. The waypoint radius is `STOP_DISTANCE_M` = 0.5 m in `navigate_path.py`.
+3. Note it down. The waypoint radius is `stop_distance_m` = 0.5 m in `navigate_path.py`.
 
 ## 4. A plain run, as before
 

@@ -7,19 +7,20 @@ from mpu9250_jmdev.registers import *
 from mpu9250_jmdev.mpu_9250 import MPU9250
 from create_waypoint_list import plan_field
 from field_config import load_field
-from lawnmower.geometry import calculate_bearing, distance_meters, heading_error, project_onto_row
-from lawnmower.kalman import PositionFilter
-from lawnmower.steering import heading_from_magnetometer, steer
+from lawnmower.mission import Mission, MissionConfig, WAITING_FOR_FIX
+from lawnmower.steering import heading_from_magnetometer
 
 # --- Lawnmower field corners (lat, lon) ---
 FIELD = load_field()  # from field.json, or the corners in .env
 
-# --- Navigation constants ---
-STOP_DISTANCE_M = 0.5       # Waypoint reached when within 0.5 meters
-RUNTIME_LIMIT_S = 180       # Stop after 3 minutes
-FORWARD_SPEED = 100         # Motor speed when going straight (0-100)
-TURN_SPEED = 80             # Motor speed for turning inner wheel
-HEADING_THRESHOLD = 10      # Degrees of error before correcting course
+# --- Navigation settings (the decisions themselves are in lawnmower/mission.py) ---
+CONFIG = MissionConfig(
+    stop_distance_m=0.5,        # Waypoint reached when within 0.5 meters
+    runtime_limit_s=180,        # Stop after 3 minutes
+    forward_speed=100,          # Motor speed when going straight (0-100)
+    turn_speed=80,              # Motor speed for turning inner wheel
+    heading_threshold_deg=10,   # Degrees of error before correcting course
+)
 
 # --- GPS setup ---
 gps_port = serial.Serial("/dev/ttyAMA0", baudrate=9600, timeout=1)
@@ -140,89 +141,33 @@ def read_accelerometer_world(heading_deg):
     return ax_east, ay_north
 
 
-# --- Position filter ---
-# GPS + accelerometer Kalman filter; see lawnmower/kalman.py for the state and tuning notes.
-kf = PositionFilter()
-
-
 # --- Generate waypoint path ---
 WAYPOINTS = plan_field(FIELD)
-waypoint_index = 0
-TARGET_LAT, TARGET_LON = WAYPOINTS[waypoint_index]
-prev_waypoint = None   # Tracks row start for path projection; set when a waypoint is reached
-
-print(f"Path loaded: {len(WAYPOINTS)} waypoints.")
-print(f"Navigating to waypoint 0: ({TARGET_LAT:.8f}, {TARGET_LON:.8f})")
 start_time = time.time()
-last_time   = start_time
+mission = Mission(WAYPOINTS, CONFIG, now=start_time)   # holds the position filter and the current waypoint
+for line in mission.start_messages():
+    print(line)
 
 try:
     while True:
-        now     = time.time()
-        dt      = max(now - last_time, 1e-3)
-        last_time = now
-        elapsed = now - start_time
-
-        if elapsed >= RUNTIME_LIMIT_S:
-            print("Time limit reached. Stopping.")
-            break
+        now = time.time()
 
         # --- Read sensors every loop ---
         heading = read_heading()
         ax_east, ay_north = read_accelerometer_world(heading)
-
-        # --- Kalman predict (dead-reckon forward using accelerometer) ---
-        if kf.initialized:
-            kf.predict(ax_east, ay_north, dt)
-
-        # --- GPS update (correct drift whenever a fix is available) ---
         gps = read_gps()
-        if gps is not None:
-            if not kf.initialized:
-                kf.init(*gps)
-            else:
-                kf.update_gps(*gps)
 
-        if not kf.initialized:
-            print("Waiting for GPS fix...")
+        # --- Decide: Kalman filter, waypoint advance, path projection and steering ---
+        command = mission.step(now, heading, ax_east, ay_north, gps)
+        for line in command.messages:
+            print(line)
+        if command.done:
+            break
+        if command.reason == WAITING_FOR_FIX:
             time.sleep(0.5)
             continue
-
-        # --- Best position estimate from Kalman filter ---
-        cur_lat, cur_lon = kf.position()
-
-        # --- Path projection: snap lateral position to the current row line ---
-        # This prevents GPS noise from causing steering corrections while straight.
-        # Not applied on the approach to the very first waypoint (no row yet).
-        if prev_waypoint is not None:
-            nav_lat, nav_lon = project_onto_row(
-                cur_lat, cur_lon, prev_waypoint, (TARGET_LAT, TARGET_LON), kf.ref)
-        else:
-            nav_lat, nav_lon = cur_lat, cur_lon
-
-        distance = distance_meters(nav_lat, nav_lon, TARGET_LAT, TARGET_LON)
-        raw_str = f"({gps[0]:.6f}, {gps[1]:.6f})" if gps else "no fix"
-        print(f"WP {waypoint_index}/{len(WAYPOINTS)-1} | "
-              f"GPS: {raw_str} | KF: ({cur_lat:.6f}, {cur_lon:.6f}) | "
-              f"Target: ({TARGET_LAT:.8f}, {TARGET_LON:.8f}) | "
-              f"Dist: {distance:.1f}m | Elapsed: {elapsed:.1f}s")
-
-        if distance <= STOP_DISTANCE_M:
-            waypoint_index += 1
-            if waypoint_index >= len(WAYPOINTS):
-                print("All waypoints reached! Path complete.")
-                break
-            prev_waypoint = (TARGET_LAT, TARGET_LON)
-            TARGET_LAT, TARGET_LON = WAYPOINTS[waypoint_index]
-            print(f"Waypoint reached. Moving to waypoint {waypoint_index}/{len(WAYPOINTS)-1}: "
-                  f"({TARGET_LAT:.8f}, {TARGET_LON:.8f})")
-            continue
-
-        bearing = calculate_bearing(nav_lat, nav_lon, TARGET_LAT, TARGET_LON)
-        error   = heading_error(heading, bearing)
-        print(f"Heading: {heading:.1f}° | Target bearing: {bearing:.1f}° | Error: {error:.1f}°")
-
-        set_motor_speed(*steer(error, FORWARD_SPEED, TURN_SPEED, HEADING_THRESHOLD))
+        if command.left is not None:
+            set_motor_speed(command.left, command.right)
 
 except KeyboardInterrupt:
     print("\nInterrupted.")
