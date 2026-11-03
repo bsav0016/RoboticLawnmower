@@ -38,6 +38,7 @@ The wiring diagram source is [Wiring Diagram.pptx](Wiring%20Diagram.pptx); the p
 | [navigate_path.py](navigate_path.py) | Full autonomous run: waypoint generation, Kalman filter, path following |
 | [navigate_to_target.py](navigate_to_target.py) | Drive to a single GPS coordinate (earlier milestone) |
 | [create_waypoint_list.py](create_waypoint_list.py) | Generate lawnmower passes from the field and write `waypoints.py` |
+| [sweep_plan.py](sweep_plan.py) | Compare planner settings by driving each in the simulator; no Pi needed |
 | [replay_run.py](replay_run.py) | Summarize a run log copied off the Pi and replay it through the mission code; no Pi needed |
 | [preview_plan.py](preview_plan.py) | Draw the plan on a computer (SVG and GeoJSON) before the robot moves; no Pi needed |
 | [control_motors.py](control_motors.py) | Drive with a Bluetooth gamepad |
@@ -84,7 +85,13 @@ from lawnmower import sim
 result = sim.simulate(waypoints, seed=1)   # result.finished, .waypoints_reached, .elapsed_s, .track
 ```
 
-Every default is a guess until it is measured on the rover (the turning radius in [docs/FIELD_TRIALS.md](docs/FIELD_TRIALS.md) step 5, GPS and compass noise from a recorded run), so for now a simulation compares settings against each other; it does not promise what the rover will do. The sweep tool that uses it comes next.
+Every default is a guess until it is measured on the rover (the turning radius in [docs/FIELD_TRIALS.md](docs/FIELD_TRIALS.md) step 5, GPS and compass noise from a recorded run), so for now a simulation compares settings against each other; it does not promise what the rover will do. [sweep_plan.py](sweep_plan.py) uses it to compare settings:
+
+```bash
+python sweep_plan.py --field field.json --inset 0,1,2 --turn-depth 0,1 --gps-error 1,2.5 --turn-speed 80,60,0 --seeds 8 --jobs 4 --csv sweep.csv --svg best.svg
+```
+
+It plans the field once for every combination (`--inset`, `--turn-depth`, `--stop-distance` for the waypoint radius, `--gps-error` for the total GPS error in metres, `--turn-speed` for the inner wheel), drives each plan in the simulator with `--seeds` different noise draws, and prints a row per combination: the share of the mowable grass a cut-width strip along the real track passed over, the farthest the rover got outside the boundary and into a no-go zone, the time, whether every run finished, and whether the row meets `--coverage-target` (95) and `--max-excursion` (1 m). `--svg` draws the recommended row's route in orange over its plan. [docs/SIMULATION.md](docs/SIMULATION.md) has what it says about a 30 m by 20 m sample lawn (`docs/examples/lawn-30x20.json`).
 
 ### Preview a plan before the rover moves
 
@@ -105,7 +112,7 @@ Before putting any of this on the rover, follow [docs/FIELD_TRIALS.md](docs/FIEL
 python -m unittest discover -s tests
 ```
 
-The tests need no Pi, only `numpy`. They cover the waypoint planner (coordinate conversion, corner ordering, pass count, spacing, coverage and direction for wide and tall fields), the `field.json` and `.env` loading (including a golden check that the example field plans the same waypoints as before), the polygon planner and the preview output, and the `lawnmower/` navigation maths (bearing wraparound, heading error at ±180°, distance, row projection and clamping, compass heading, steering decision), the mission logic with scripted sensor input (waiting for a fix, steering, waypoint advance, row projection, finishing, time limit), the run log (a recorded run replays to the same decisions; a changed setting shows where it differs), the simulator (straight lines, the turning radius of a fixed wheel-speed pair, spinning on the spot, the statistics of each sensor's noise, repeatability from a seed, and the mission driving a leg to its end), and the Kalman filter (convergence on a fixed target, noise smoothing, dead-reckoning kinematics, uncertainty growth and shrinkage). The sensor reading and motor code still only run on the robot and are not tested; GitHub Actions just checks that every script still compiles, then runs these tests. Dependabot opens weekly pull requests to update the pinned GitHub Actions versions.
+The tests need no Pi, only `numpy`. They cover the waypoint planner (coordinate conversion, corner ordering, pass count, spacing, coverage and direction for wide and tall fields), the `field.json` and `.env` loading (including a golden check that the example field plans the same waypoints as before), the polygon planner and the preview output, and the `lawnmower/` navigation maths (bearing wraparound, heading error at ±180°, distance, row projection and clamping, compass heading, steering decision), the mission logic with scripted sensor input (waiting for a fix, steering, waypoint advance, row projection, finishing, time limit), the run log (a recorded run replays to the same decisions; a changed setting shows where it differs), the simulator (straight lines, the turning radius of a fixed wheel-speed pair, spinning on the spot, the statistics of each sensor's noise, repeatability from a seed, and the mission driving a leg to its end), the scoring of a driven track (coverage of the mowable area, distance outside the boundary and into zones) and the sweep tool, and the Kalman filter (convergence on a fixed target, noise smoothing, dead-reckoning kinematics, uncertainty growth and shrinkage). The sensor reading and motor code still only run on the robot and are not tested; GitHub Actions just checks that every script still compiles, then runs these tests. Dependabot opens weekly pull requests to update the pinned GitHub Actions versions.
 
 ## Milestones
 
