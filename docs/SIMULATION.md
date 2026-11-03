@@ -43,6 +43,12 @@ With the NEO-6M's typical error, even the most cautious row strayed 2.0 m beyond
 
 Passes spaced exactly one cut width apart leave a strip wherever the rover wobbles. In an earlier run on the same lawn with no overlap, the most any row cut at 2.5 m of GPS error was 66 %, against 80 % with 0.5 m of overlap. More overlap costs time (about twice the path here), so it is a trade.
 
+## Failsafes
+
+The thresholds in `MissionConfig` come from the same simulator. With a fix every second the filter's uncertainty stays near 3 m; after a GPS dropout it reaches about 10 m in roughly 5 seconds. So the rover stops when there has been no fix for 5 s or the uncertainty is above 10 m (whichever comes first, usually the uncertainty), and when the position estimate is more than 5 m outside the boundary. The 5 m limit is above what the safer settings above produced (up to about 2 m outside at 1 m of GPS error) and below a runaway: a compass that reads 180 degrees out is stopped before the rover is more than about 9 m from the field. At 2.5 m of GPS error even sensible settings go beyond 5 m, so the failsafe would stop those runs; that is the simulator saying the position is not good enough, not a reason to raise the limit.
+
+`sweep_plan.py` switches the failsafes off, so its table judges the steering and the settings on their own.
+
 ## What to do with this
 
 1. Measure the turning radius (FIELD_TRIALS step 5) and the GPS error (a recorded run, `replay_run.py`), put them into `sweep_plan.py` (`--track-width`, `--gps-error`) and run it again.

@@ -21,6 +21,9 @@ CONFIG = MissionConfig(
     forward_speed=100,          # Motor speed when going straight (0-100)
     turn_speed=80,              # Motor speed for turning inner wheel
     heading_threshold_deg=10,   # Degrees of error before correcting course
+    no_fix_timeout_s=5.0,       # Stop if there is no GPS fix for 5 seconds
+    max_position_std_m=10.0,    # Stop if the position estimate is that uncertain
+    max_outside_m=5.0,          # Stop if the estimate is 5 m outside the field boundary
 )
 
 # --- GPS setup ---
@@ -145,7 +148,7 @@ def read_accelerometer_world(heading_deg):
 # --- Generate waypoint path ---
 WAYPOINTS = plan_field(FIELD)
 start_time = time.time()
-mission = Mission(WAYPOINTS, CONFIG, now=start_time)   # holds the position filter and the current waypoint
+mission = Mission(WAYPOINTS, CONFIG, now=start_time, boundary=FIELD.boundary)   # holds the position filter and the current waypoint
 for line in mission.start_messages():
     print(line)
 

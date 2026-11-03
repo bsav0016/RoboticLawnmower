@@ -18,6 +18,11 @@ surprises you. Keep the robot where you can reach it, and have the battery lead 
    wheels left and right as the GPS position wanders. This checks the `field.json` wiring, which has not run on the Pi.
 3. Stop it and confirm the motors stop. It also printed `Logging this run to runs/run-....jsonl`; copy that file to a computer and `python replay_run.py <file>` should report that the mission code makes the same decisions as the rover did.
 
+3. Failsafe check, still on blocks: start it again, wait until the wheels are following the GPS, then unplug the GPS
+   receiver. Within about 5 seconds the wheels should stop and it should print `Failsafe: ...` and `Shutdown complete.`
+   (the position-uncertainty check usually fires first). Plug the receiver back in and confirm it starts again. Then
+   do it a second time with the rover in a free area and an adult beside the kill switch, to see it stop on the ground.
+
 ## 3. Measure how the rover turns
 
 The rover never turns on the spot: `steer()` slows the inner wheel (`turn_speed` 80 against `forward_speed` 100), so

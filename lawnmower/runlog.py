@@ -21,6 +21,7 @@ def _header(mission):
         "format": FORMAT,
         "start": mission.start_time,
         "waypoints": [list(w) for w in mission.waypoints],
+        "boundary": [list(p) for p in mission.boundary] if mission.boundary else None,
         "config": asdict(mission.config),
         "filter": {"gps_std_m": kf.gps_std_m, "process_pos": kf.process_pos, "process_vel": kf.process_vel},
     }
@@ -79,7 +80,9 @@ def replay(header, steps):
     (recorded command dict, replayed Command, replayed waypoint index)."""
     waypoints = [tuple(w) for w in header["waypoints"]]
     config = MissionConfig(**header["config"])
-    mission = Mission(waypoints, config, now=header["start"], position_filter=PositionFilter(**header["filter"]))
+    boundary = [tuple(p) for p in header["boundary"]] if header.get("boundary") else None
+    mission = Mission(waypoints, config, now=header["start"], position_filter=PositionFilter(**header["filter"]),
+                      boundary=boundary)
     results = []
     for step in steps:
         gps = tuple(step["gps"]) if step["gps"] is not None else None
