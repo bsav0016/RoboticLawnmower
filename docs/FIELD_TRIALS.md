@@ -16,7 +16,7 @@ surprises you. Keep the robot where you can reach it, and have the battery lead 
 1. Put the rover on blocks so the wheels spin freely.
 2. `python navigate_path.py` with the example field. It should start, print `Path loaded: N waypoints`, and steer the
    wheels left and right as the GPS position wanders. This checks the `field.json` wiring, which has not run on the Pi.
-3. Stop it and confirm the motors stop.
+3. Stop it and confirm the motors stop. It also printed `Logging this run to runs/run-....jsonl`; copy that file to a computer and `python replay_run.py <file>` should report that the mission code makes the same decisions as the rover did.
 
 ## 3. Measure how the rover turns
 

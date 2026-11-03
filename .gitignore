@@ -1,6 +1,9 @@
 # Sensitive / credentials
 IP and login.txt
 
+# Run logs written by navigate_path.py
+runs/
+
 # Word lock/temp files
 ~$*.docx
 ~$*.pptx
