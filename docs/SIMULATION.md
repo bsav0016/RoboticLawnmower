@@ -33,7 +33,7 @@ The inset margin is, by design, grass the rover never mows, so the settings that
 | 1 m | 0, 0, 0.5, 60 | 89 % | 3.5 m | 3, 0, 0.5, 60 | 64 % | 0.0 m |
 | 2.5 m | 0, 0, 0.5, 60 | 80 % | 7.7 m | 3, 0, 1, 0 | 27 % | 2.0 m |
 
-So for this lawn: `inset_m` 2 with `turn_depth_m` 1 holds the rover inside when the position is good to about 0.3 m, and `inset_m` 3 when it is good to about 1 m. Turning the swing-out on (`turn_depth_m` above 0, same inset) cut more grass in 70 of the 90 matching pairs (28 of 30 with the inner wheel at 0) but kept the rover closer in only about half of them (it did so in 6 of 30 with the inner wheel at 0), so it is a coverage gain more than a safety one. A waypoint radius of 0.5 m cut more grass than 1 m in all 81 matching pairs and strayed less in 60 of them.
+So for this lawn: `inset_m` 2 with `turn_depth_m` 1 holds the rover inside when the position is good to about 0.3 m, and `inset_m` 3 when it is good to about 1 m. Turning the swing-out on (`turn_depth_m` above 0, same inset) cut more grass in 70 of the 90 matching pairs (28 of 30 with the inner wheel at 0) but kept the rover closer in only 34 of the 90 (6 of 30 with the inner wheel at 0), so it is a coverage gain more than a safety one. A waypoint radius of 0.5 m cut more grass than 1 m in all 81 matching pairs and strayed less in 60 of them.
 
 ## 3. At 2.5 m of GPS error nothing keeps the rover on the lawn
 
