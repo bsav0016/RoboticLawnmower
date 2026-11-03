@@ -90,14 +90,17 @@ def _nice_length(max_m):
     return fitting[-1] if fitting else _SCALE_BAR_CHOICES_M[0]
 
 
-def plan_svg(field, waypoints):
-    """The plan as a stand-alone SVG document (a string), north up, with a scale bar."""
+def plan_svg(field, waypoints, track=None):
+    """The plan as a stand-alone SVG document (a string), north up, with a scale bar.
+
+    track is optionally the route a rover really drove, as (lat, lon) points, drawn in orange over the plan."""
     prepared = prepare_field(field.boundary, field.pass_spacing_m, field.inset_m, field.exclusions)
     outline, driven, ref = prepared.outline, prepared.driven, prepared.ref
     path = [to_meters(lat, lon, ref[0], ref[1]) for lat, lon in waypoints]
+    driven_track = [to_meters(lat, lon, ref[0], ref[1]) for lat, lon in track or []]
 
-    xs = [p[0] for p in outline + path]
-    ys = [p[1] for p in outline + path]
+    xs = [p[0] for p in outline + path + driven_track]
+    ys = [p[1] for p in outline + path + driven_track]
     min_x, max_x, min_y, max_y = min(xs), max(xs), min(ys), max(ys)
     span = max(max_x - min_x, max_y - min_y, 1.0)
     scale = SVG_SIZE_PX / span
@@ -137,6 +140,9 @@ def plan_svg(field, waypoints):
                      f'stroke-width="2"/>')
     parts.append(f'<polyline id="path" points="{points_attr(path)}" fill="none" stroke="#1f5fbf" stroke-width="1.5" '
                  f'stroke-linejoin="round"/>')
+    if driven_track:
+        parts.append(f'<polyline id="track" points="{points_attr(driven_track)}" fill="none" stroke="#e07b00" '
+                     f'stroke-width="1.5" stroke-linejoin="round" opacity="0.85"/>')
     if len(path) <= MAX_DOTS:
         for x, y in map(px, path):
             parts.append(f'<circle class="waypoint" cx="{x:.1f}" cy="{y:.1f}" r="2" fill="#1f5fbf"/>')
